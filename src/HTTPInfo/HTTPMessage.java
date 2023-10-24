@@ -1,4 +1,4 @@
-package HTTPRequest;
+package HTTPInfo;
 
 /*
  * Encapsulates the data for an Http Message
@@ -9,16 +9,13 @@ import java.util.HashMap;
 
 public class HTTPMessage {
     // Headers
-    public static final String CONTENT_LENGTH = "Content-Length";
-    public static final String CONTENT_TYPE = "Content-Type";
 
     String httpVersion;
-    HashMap<String, String> allHeaders; // HashMap containing all of the headers for this message
+    HashMap<String, String> allHeaders; // HashMap containing the headers for this message
 
     public HTTPMessage(String httpVersion)
     {
         allHeaders = new HashMap<>();
-        this.httpVersion = httpVersion;
     }
 
     /*

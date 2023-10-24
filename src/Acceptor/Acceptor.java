@@ -3,15 +3,19 @@ package Acceptor;
 import java.nio.channels.*;
 import java.io.IOException;
 import AcceptHandler.AcceptHandler;
+import ApacheConfig.ApacheConfig;
 import SocketReadWriteHandlerFactory.SocketReadWriteHandlerFactory;
 import ReadWriteHandler.ReadWriteHandler;
 
 public class Acceptor implements AcceptHandler {
 
     private SocketReadWriteHandlerFactory srwf;
-
-    public Acceptor(SocketReadWriteHandlerFactory srwf) {
+    private String CGI_BIN;
+    private ApacheConfig config;
+    public Acceptor(SocketReadWriteHandlerFactory srwf, ApacheConfig config, String CGI_BIN) {
         this.srwf = srwf;
+        this.config = config;
+        this.CGI_BIN = CGI_BIN;
     }
 
     public void handleException() {
@@ -34,7 +38,7 @@ public class Acceptor implements AcceptHandler {
          * SelectionKey.OP_READ);// | SelectionKey.OP_WRITE);
          */
 
-        ReadWriteHandler rwH = srwf.createHandler();
+        ReadWriteHandler rwH = srwf.createHandler(config, CGI_BIN);
         int ops = rwH.getInitOps();
 
         SelectionKey clientKey = client.register(key.selector(), ops);

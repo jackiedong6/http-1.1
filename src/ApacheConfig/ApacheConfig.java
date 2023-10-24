@@ -29,9 +29,10 @@ public class ApacheConfig {
         return numSelectLoops;
     }
 
-    public static List<VirtualHost> getVirtualHosts() {
-        return new ArrayList<>(virtualHosts); // Return a copy to ensure immutability
+    public List<VirtualHost> getVirtualHosts() {
+        return virtualHosts;
     }
+
 
     public void parse() {
         try {

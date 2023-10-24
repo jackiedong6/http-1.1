@@ -8,7 +8,7 @@ import SocketReadWriteHandlerFactory.SocketReadWriteHandlerFactory;
 import HTTP1xReadWrite.HTTP1xReadWriteHandlerFactory;
 
 public class server {
-
+    public static String CGI_BIN = "cgi-bin";
     public static ServerSocketChannel openServerChannel(int port) {
         ServerSocketChannel serverChannel = null;
         try {
@@ -48,8 +48,8 @@ public class server {
         ServerSocketChannel sch = openServerChannel(config.getServerPort());
 
         // create server acceptor for Echo Line ReadWrite Handler
-        SocketReadWriteHandlerFactory echoFactory = new HTTP1xReadWriteHandlerFactory();
-        Acceptor acceptor = new Acceptor(echoFactory);
+        SocketReadWriteHandlerFactory readWriteFactory = new HTTP1xReadWriteHandlerFactory();
+        Acceptor acceptor = new Acceptor(readWriteFactory, config, CGI_BIN);
 
         Thread dispatcherThread;
         // register the server channel to a selector
