@@ -1,5 +1,6 @@
 package HTTP1xReadWrite;
 
+import java.net.Socket;
 import java.text.SimpleDateFormat;
 import java.util.*;
 import java.io.*;
@@ -10,7 +11,6 @@ import java.io.IOException;
 
 import ApacheConfig.*;
 import ReadWriteHandler.ReadWriteHandler;
-import java.text.ParseException;
 import HTTPInfo.*;
 
 public class HTTP1xReadWriteHandler implements ReadWriteHandler {
@@ -38,6 +38,7 @@ public class HTTP1xReadWriteHandler implements ReadWriteHandler {
     HTTPRequest httpRequest;
     HTTPResponse httpResponse;
     SimpleDateFormat format; // HTTP Time Format
+    ArrayList<String> payload;
 
     ApacheConfig config;
     boolean keepAlive;
@@ -52,6 +53,8 @@ public class HTTP1xReadWriteHandler implements ReadWriteHandler {
         this.config = config;
         // Set WWW Root as the first virtual host
         this.WWW_ROOT = "." + config.getVirtualHosts().get(0).getDocumentRoot() + "/";
+        this.payload = null;
+        this.CGI_BIN = CGI_BIN;
     }
 
     public int getInitOps() {
@@ -170,30 +173,34 @@ public class HTTP1xReadWriteHandler implements ReadWriteHandler {
         if (state == State.PARSE_REQUEST) {
             httpRequest = new HTTPRequest(new BufferedReader(new StringReader(request.toString())));
             httpRequest.parseRequest();
-            processHTTPRequest();
+            DEBUG("HELLO WORLD");
+            processHTTPRequest(key);
         }
     } // end of process input
 
-    private void processHTTPRequest() {
+    private void processHTTPRequest(SelectionKey key) {
+        DEBUG("HERE1");
         if(httpRequest.getHttpMethod() == null || httpRequest.getHttpVersion() == null|| httpRequest.getUrlName() == null) {
             errCode = 500;
             errMsg = "Bad Request";
             outputError();
             return;
         }
+        DEBUG("HERE2");
         if (!httpRequest.isSupportedHttpMethod()) {
             errCode = 500;
             errMsg = "Server does not recognize " + httpRequest.getHttpMethod() + " method";
             outputError();
             return;
         }
+        DEBUG("HERE3");
         if (!httpRequest.isSupportedHttpVersion()) {
             errCode = 505;
             errMsg = "Version Not Supported";
             outputError();
             return;
         }
-
+        DEBUG("HERE4");
         if (!httpRequest.validateUrl()) {
             errCode = 403;
             errMsg = "Forbidden";
@@ -201,12 +208,29 @@ public class HTTP1xReadWriteHandler implements ReadWriteHandler {
             outputError();
             return;
         }
-
+        DEBUG("HERE5");
         if(!processHostHeader()) {
             errCode = 400;
             errMsg = "Invalid Host Header";
             outputError();
             return;
+        }
+        DEBUG("HERE6");
+        urlName = httpRequest.getUrlName();
+
+        // First, we check if there is a htaccess content file in the directory of the requested url
+        htaccessContent = processHtaccess(WWW_ROOT);
+        if (htaccessContent != null) {
+            if(!httpRequest.processAuthorizationHeader(htaccessContent)) {
+                errCode = 401;
+                errMsg = "Unauthorized";
+                // We have not specified the authorization header even though it is required
+                if (httpRequest.getHeader("Authorization") == null) {
+                    wwwAuthenticate = true;
+                }
+                outputError();
+                return;
+            }
         }
 
         switch (httpRequest.getHttpMethod()) {
@@ -225,6 +249,82 @@ public class HTTP1xReadWriteHandler implements ReadWriteHandler {
                     //
                 }
             }
+            case ("POST"): {
+                DEBUG("HERE");
+                processPostRequest(key);
+                putString(outBuffer,"HTTP/1.1 200 OK\r\n");
+                outputPostResponse();
+                break;
+            }
+        }
+    }
+
+    private void processPostRequest(SelectionKey key) {
+        // select the cgi script to handle the request
+        String[] partsOfUrl = urlName.split("/");
+
+        // all executable files MUST reside in cgi-bin
+        String fileName = CGI_BIN + "/" + partsOfUrl[partsOfUrl.length - 1];
+        DEBUG("filename: " + fileName); // uncommented this
+
+        // get the arguments from the request body
+        String scriptArgs = httpRequest.getRequestBody();
+
+        // create and set up the process environment
+        ProcessBuilder pb = new ProcessBuilder(fileName);
+
+        SocketChannel client = (SocketChannel) key.channel();
+        Socket socket = client.socket();
+        String clientNetworkAddress = socket.getInetAddress().getHostAddress();
+        String fullyQualifiedDomainName = "";
+        String remoteIdentity = "";
+        String remoteUser = "";
+        String serverName = config.getVirtualHosts().get(0).getServerName();
+        String currentServerPort = "6789";
+        String serverProtocol = httpRequest.getHttpVersion();
+        String serverSoftware = "";
+        // set environment variables
+        Map<String, String> env = pb.environment();
+
+        // String clientIPAddress = clientSocket.getInetAddress().getHostAddress();
+        env.put("QUERY_STRING", scriptArgs);
+        env.put("REQUEST_METHOD", httpRequest.getHttpMethod());
+        env.put("REMOTE_ADDR", clientNetworkAddress); // set to network address of the client sending the request to the server
+        env.put("REMOTE_HOST", fullyQualifiedDomainName); // set to fully qualified domain name of client (or NULL)
+        env.put("REMOTE_IDENT", remoteIdentity); // may be used to provide identity information reported about the connection
+        env.put("REMOTE_USER", remoteUser); // set to a user identification string supplied by the client as part of user authentication
+        env.put("SERVER_NAME", serverName); // set to the name of the server host to which the client request is directed
+        env.put("SERVER_PORT", currentServerPort); // set to the TCP/IP port number on which this request is received
+        env.put("SERVER_PROTOCOL", serverProtocol); // set to name and version of the application protocol used for this CGI request
+        env.put("SERVER_SOFTWARE", serverSoftware);
+
+        // redirect the stdout of the script to a file descriptor
+        pb.redirectOutput(ProcessBuilder.Redirect.PIPE);
+
+        try {
+            // run the executable with the args passed in
+            Process p = pb.start();
+            // convert the cgi response into an HTTP response
+            InputStream cgiResponseStream = p.getInputStream(); // read data from the stdout of the process p
+            BufferedReader reader = new BufferedReader(new InputStreamReader(cgiResponseStream));
+
+            ArrayList<String> cgiResponse = new ArrayList<>();
+            String line;
+
+            // Record the script response line-by-line
+            while ((line = reader.readLine()) != null) {
+                cgiResponse.add(line);
+            }
+
+            payload = cgiResponse;
+
+        } catch (IOException e) {
+            // log error here
+            DEBUG("Error in starting the cgi script");
+            DEBUG("Exception: " + e);
+            errCode = 500;
+            errMsg = "Internal Server Error: Could not create dynamic content";
+            outputError();
         }
     }
 
@@ -239,22 +339,6 @@ public class HTTP1xReadWriteHandler implements ReadWriteHandler {
             outputError();
         }
 
-        urlName = httpRequest.getUrlName();
-
-        // First, we check if there is a htaccess content file in the directory of the requested url
-        htaccessContent = processHtaccess(WWW_ROOT);
-        if (htaccessContent != null) {
-            if(!httpRequest.processAuthorizationHeader(htaccessContent)) {
-                errCode = 401;
-                errMsg = "Unauthorized";
-                // We have not specified the authorization header even though it is required
-                if (httpRequest.getHeader("Authorization") == null) {
-                    wwwAuthenticate = true;
-                }
-                outputError();
-                return;
-            }
-        }
         if (urlName.equals("")) {
             if (httpRequest.isMobileUserAgent()) {
                 fileName = WWW_ROOT + "index_m.html";
@@ -345,6 +429,17 @@ public class HTTP1xReadWriteHandler implements ReadWriteHandler {
         return htaccessContent;
     }
 
+    private void outputPostResponse() {
+        putString(outBuffer, "HTTP/1.1 200 OK\r\n");
+        putString(outBuffer, "Date: " + format.format(new Date()) + "\r\n");
+        putString(outBuffer, "Server: Jackie and Cesar's HTTP/1.0 Server\r\n");
+
+        // output the response body from CGI response
+        ArrayList<String> cgiResponse = httpResponse.getPayload();
+        for (String s : cgiResponse) {
+            putString(outBuffer, s);
+        }
+    }
     private void outputResponseHeader() {
         putString(outBuffer, "HTTP/1.1 200 Document Follows\r\n");
         putString(outBuffer, "Set-Cookie: " + generateCookie() + "\r\n");

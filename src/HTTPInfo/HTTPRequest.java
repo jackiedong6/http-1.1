@@ -22,7 +22,7 @@ public class HTTPRequest {
 
     private String requestUrl;
     private String httpMethod;
-    private String body;
+    private String requestBody;
     private String httpVersion;
     private BufferedReader requestReader;
     private HashMap<String, String> allHeaders; // HashMap containing the headers for this message
@@ -50,14 +50,14 @@ public class HTTPRequest {
         return requestUrl;
     }
 
-    public void setRequestBody(String body)
+    public void setRequestBody(String requestBody)
     {
-        this.body = body;
+        this.requestBody = requestBody;
     }
 
     public String getRequestBody()
     {
-        return body;
+        return requestBody;
     }
 
     /*
@@ -116,6 +116,50 @@ public class HTTPRequest {
         }
 
         DEBUG(String.valueOf(allHeaders));
+
+        if (getHttpMethod().equals("POST") && getHeader("Content-Type") != null) {
+            parseBody();
+        }
+    }
+
+    public void parseBody() throws Exception{
+        String contentType = getHeader("Content-Type");
+        // Parse the body
+        switch (contentType)
+        {
+            case ("application/x-www-form-urlencoded"):
+            {
+                // DEBUG("Parsing body with content type: " + contentType);
+                // get the body from the rest of the input
+                StringBuilder requestBodyBuilder = new StringBuilder();
+                String requestBodyLine = requestReader.readLine();
+
+                // should only be one line?
+                while (!requestBodyLine.equals("")) {
+                    requestBodyBuilder.append(requestBodyLine);
+                    requestBodyLine = requestReader.readLine();
+                    // DEBUG("RequestBodyLine: " + requestBodyLine);
+                }
+
+                setRequestBody(requestBodyBuilder.toString());
+                DEBUG("Request body: " + requestBody);
+                break;
+            }
+            case ("application/json"):
+            {
+                String jsonFileName = requestReader.readLine();
+                // DEBUG("jsonFileName: " + jsonFileName);
+
+                //TODO: parse the contents of the file
+                break;
+            }
+            default:
+            {
+                // handle error
+                DEBUG("Detected file format not supported on this server");
+                break;
+            }
+        } // end of parse body
     }
 
     public boolean validateUrl() {
