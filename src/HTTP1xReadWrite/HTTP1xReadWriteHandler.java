@@ -92,7 +92,6 @@ public class HTTP1xReadWriteHandler implements ReadWriteHandler {
 
         if (state == State.RESPONSE_SENT) {
             try {
-                DEBUG("HERE");
                 key.channel().close();
                 key.cancel();
             } catch (IOException e) {
@@ -150,14 +149,12 @@ public class HTTP1xReadWriteHandler implements ReadWriteHandler {
         int readBytes = client.read(inBuffer);
         DEBUG("handleRead: Read data from connection " + client + " for " + readBytes + " byte(s); to buffer "
                 + inBuffer);
-
         // end of our stream
         if (readBytes == -1) {
             state = State.RESPONSE_READY;
             DEBUG("handleRead: readBytes == -1");
         } else {
             inBuffer.flip(); // read input
-
             while (state != State.PARSE_REQUEST && inBuffer.hasRemaining() && request.length() < request.capacity()) {
                 char ch = (char) inBuffer.get();
                 request.append(ch);
@@ -171,36 +168,33 @@ public class HTTP1xReadWriteHandler implements ReadWriteHandler {
         }
         inBuffer.clear();
         if (state == State.PARSE_REQUEST) {
-            httpRequest = new HTTPRequest(new BufferedReader(new StringReader(request.toString())));
-            httpRequest.parseRequest();
-            DEBUG("HELLO WORLD");
+            if (httpRequest == null) {
+                httpRequest = new HTTPRequest(new BufferedReader(new StringReader(request.toString())));
+                httpRequest.parseRequest();
+            }
             processHTTPRequest(key);
         }
     } // end of process input
 
-    private void processHTTPRequest(SelectionKey key) {
-        DEBUG("HERE1");
+    private void processHTTPRequest(SelectionKey key) throws Exception {
         if(httpRequest.getHttpMethod() == null || httpRequest.getHttpVersion() == null|| httpRequest.getUrlName() == null) {
             errCode = 500;
             errMsg = "Bad Request";
             outputError();
             return;
         }
-        DEBUG("HERE2");
         if (!httpRequest.isSupportedHttpMethod()) {
             errCode = 500;
             errMsg = "Server does not recognize " + httpRequest.getHttpMethod() + " method";
             outputError();
             return;
         }
-        DEBUG("HERE3");
         if (!httpRequest.isSupportedHttpVersion()) {
             errCode = 505;
             errMsg = "Version Not Supported";
             outputError();
             return;
         }
-        DEBUG("HERE4");
         if (!httpRequest.validateUrl()) {
             errCode = 403;
             errMsg = "Forbidden";
@@ -208,14 +202,12 @@ public class HTTP1xReadWriteHandler implements ReadWriteHandler {
             outputError();
             return;
         }
-        DEBUG("HERE5");
         if(!processHostHeader()) {
             errCode = 400;
             errMsg = "Invalid Host Header";
             outputError();
             return;
         }
-        DEBUG("HERE6");
         urlName = httpRequest.getUrlName();
 
         // First, we check if there is a htaccess content file in the directory of the requested url
@@ -250,7 +242,12 @@ public class HTTP1xReadWriteHandler implements ReadWriteHandler {
                 }
             }
             case ("POST"): {
-                DEBUG("HERE");
+                DEBUG("BEFORE:");
+                System.out.println(new String(inBuffer.array(), StandardCharsets.UTF_8) + request);
+                state = State.READ_REQUEST;
+                updateSelectorState(key);
+                DEBUG("AFTER:");
+                System.out.println(new String(inBuffer.array(), StandardCharsets.UTF_8) + request);
                 processPostRequest(key);
                 putString(outBuffer,"HTTP/1.1 200 OK\r\n");
                 outputPostResponse();
@@ -259,7 +256,10 @@ public class HTTP1xReadWriteHandler implements ReadWriteHandler {
         }
     }
 
-    private void processPostRequest(SelectionKey key) {
+    private void processPostRequest(SelectionKey key) throws Exception {
+        if (httpRequest.getHttpMethod().equals("POST") && httpRequest.getHeader("Content-Type") != null) {
+            httpRequest.parseBody();
+        }
         // select the cgi script to handle the request
         String[] partsOfUrl = urlName.split("/");
 
@@ -286,7 +286,6 @@ public class HTTP1xReadWriteHandler implements ReadWriteHandler {
         // set environment variables
         Map<String, String> env = pb.environment();
 
-        // String clientIPAddress = clientSocket.getInetAddress().getHostAddress();
         env.put("QUERY_STRING", scriptArgs);
         env.put("REQUEST_METHOD", httpRequest.getHttpMethod());
         env.put("REMOTE_ADDR", clientNetworkAddress); // set to network address of the client sending the request to the server
@@ -300,7 +299,6 @@ public class HTTP1xReadWriteHandler implements ReadWriteHandler {
 
         // redirect the stdout of the script to a file descriptor
         pb.redirectOutput(ProcessBuilder.Redirect.PIPE);
-
         try {
             // run the executable with the args passed in
             Process p = pb.start();

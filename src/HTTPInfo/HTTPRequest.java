@@ -107,6 +107,7 @@ public class HTTPRequest {
         }
 
         String requestHeaderLine = requestReader.readLine();
+
         while (!requestHeaderLine.equals("")) {
             if (requestHeaderLine.contains(": ")) {
                 String[] headerParts = requestHeaderLine.split(": ", 2);
@@ -117,9 +118,6 @@ public class HTTPRequest {
 
         DEBUG(String.valueOf(allHeaders));
 
-        if (getHttpMethod().equals("POST") && getHeader("Content-Type") != null) {
-            parseBody();
-        }
     }
 
     public void parseBody() throws Exception{
@@ -129,18 +127,16 @@ public class HTTPRequest {
         {
             case ("application/x-www-form-urlencoded"):
             {
-                // DEBUG("Parsing body with content type: " + contentType);
+                 DEBUG("Parsing body with content type: " + contentType);
                 // get the body from the rest of the input
                 StringBuilder requestBodyBuilder = new StringBuilder();
-                String requestBodyLine = requestReader.readLine();
-
+                String requestBodyLine;
                 // should only be one line?
-                while (!requestBodyLine.equals("")) {
-                    requestBodyBuilder.append(requestBodyLine);
-                    requestBodyLine = requestReader.readLine();
-                    // DEBUG("RequestBodyLine: " + requestBodyLine);
-                }
 
+                while((requestBodyLine = requestReader.readLine()) != null)  {
+                    requestBodyBuilder.append(requestBodyLine);
+                    DEBUG("RequestBodyLine: " + requestBodyLine);
+                }
                 setRequestBody(requestBodyBuilder.toString());
                 DEBUG("Request body: " + requestBody);
                 break;
@@ -261,4 +257,7 @@ public class HTTPRequest {
         return false;
     }
 
+    public void setRequestReader(BufferedReader requestReader) {
+        this.requestReader = requestReader;
+    }
 }
