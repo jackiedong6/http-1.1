@@ -120,8 +120,21 @@ public class HTTPRequest {
 
     }
 
-    public void parseBody() throws Exception{
+    public void parseBody(BufferedReader bodyReader) throws Exception{
+        StringBuilder requestBodyBuilder = new StringBuilder();
+        String requestBodyLine;
+        // should only be one line?
+        while((requestBodyLine = bodyReader.readLine()) != null)  {
+            requestBodyBuilder.append(requestBodyLine);
+            DEBUG("RequestBodyLine: " + requestBodyLine);
+        }
+        setRequestBody(requestBodyBuilder.toString());
+
         String contentType = getHeader("Content-Type");
+        if (contentType == null) {
+            DEBUG("Content-Type header is missing or null");
+            return;
+        }
         // Parse the body
         switch (contentType)
         {
@@ -129,28 +142,18 @@ public class HTTPRequest {
             {
                  DEBUG("Parsing body with content type: " + contentType);
                 // get the body from the rest of the input
-                StringBuilder requestBodyBuilder = new StringBuilder();
-                String requestBodyLine;
-                // should only be one line?
-
-                while((requestBodyLine = requestReader.readLine()) != null)  {
-                    requestBodyBuilder.append(requestBodyLine);
-                    DEBUG("RequestBodyLine: " + requestBodyLine);
-                }
-                setRequestBody(requestBodyBuilder.toString());
-                DEBUG("Request body: " + requestBody);
                 break;
             }
             case ("application/json"):
             {
                 String jsonFileName = requestReader.readLine();
                 // DEBUG("jsonFileName: " + jsonFileName);
-
                 //TODO: parse the contents of the file
                 break;
             }
             default:
             {
+                DEBUG(requestBody);
                 // handle error
                 DEBUG("Detected file format not supported on this server");
                 break;
