@@ -7,6 +7,8 @@ import Acceptor.Acceptor;
 import SocketReadWriteHandlerFactory.SocketReadWriteHandlerFactory;
 import HTTP1xReadWrite.HTTP1xReadWriteHandlerFactory;
 
+import java.util.concurrent.locks.Lock;
+import java.util.concurrent.locks.ReentrantLock;
 public class server {
     public static String CGI_BIN = "cgi-bin";
     public static ServerSocketChannel openServerChannel(int port) {
@@ -41,24 +43,36 @@ public class server {
 
         config.parse();
 
-        // get dispatcher/selector
-        Dispatcher dispatcher = new Dispatcher();
-
-
+        // get socket channel for this port 
         ServerSocketChannel sch = openServerChannel(config.getServerPort());
 
-        // create server acceptor for Echo Line ReadWrite Handler
-        SocketReadWriteHandlerFactory readWriteFactory = new HTTP1xReadWriteHandlerFactory();
-        Acceptor acceptor = new Acceptor(readWriteFactory, config, CGI_BIN);
+        // create a lock to keep separate threads from accessing the same accept connection 
+        Lock acceptLock = new ReentrantLock(); 
 
-        Thread dispatcherThread;
-        // register the server channel to a selector
         try {
-            SelectionKey key = sch.register(dispatcher.selector(), SelectionKey.OP_ACCEPT);
-            key.attach(acceptor);
-            // start dispatcher
-            dispatcherThread = new Thread(dispatcher);
-            dispatcherThread.start();
+            /*
+             * create n dispatchers to provide nSelectLoops 
+             */
+            // start n select loops 
+            int numSelectLoops = config.getNumSelectLoops();
+            for (int i = 0; i < numSelectLoops; i++) {
+                // get dispacher/selector
+                Dispatcher dispatcher = new Dispatcher();
+
+                // create server acceptor for Echo Line ReadWrite Handler 
+                SocketReadWriteHandlerFactory readWriteFactory = new HTTP1xReadWriteHandlerFactory(); 
+                Acceptor acceptor = new Acceptor(readWriteFactory, config, CGI_BIN, acceptLock); 
+
+                Thread dispatcherThread; 
+                
+                SelectionKey key = sch.register(dispatcher.selector(), SelectionKey.OP_ACCEPT);
+                key.attach(acceptor);
+
+                // start dispatcher
+                System.out.println("Starting thread: " + i); 
+                dispatcherThread = new Thread(dispatcher);
+                dispatcherThread.start();
+            }
         } catch (IOException ex) {
             System.out.println("Cannot register and start server");
             System.exit(1);
