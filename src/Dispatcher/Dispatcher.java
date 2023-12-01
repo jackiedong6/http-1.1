@@ -6,7 +6,7 @@ import java.nio.channels.*;
 import java.io.IOException;
 import java.util.*; // for Set and Iterator
 
-public class Dispatcher implements Runnable {
+public class Dispatcher extends Thread {
 
     private Selector selector;
 
@@ -41,11 +41,14 @@ public class Dispatcher implements Runnable {
      */
 
     public void run() {
-        while (true) {
+        while (!Thread.interrupted()) {
             DEBUG("Enter Dispatcher Selection Loop");
             try {
                 // check to see if any events
                 selector.select();
+                if (Thread.interrupted()) {
+                    return; 
+                }
             } catch (IOException ex) {
                 ex.printStackTrace();
                 break;
@@ -59,7 +62,6 @@ public class Dispatcher implements Runnable {
 
             // iterate over all events
             while (iterator.hasNext()) {
-
                 SelectionKey key = iterator.next();
                 iterator.remove();
 
@@ -93,6 +95,7 @@ public class Dispatcher implements Runnable {
 
         } // end of while (true)
     } // end of run
+
     private static void DEBUG(String s) {
         System.out.println(s);
     }
