@@ -14,3 +14,5 @@ Notes on running the code:
     - curl -i -H "Host: cicada.cs.yale.edu" -H "Accept: text/html" http://localhost:6789/test.html
       
 Thank you for reviewing our code!
+
+Report: Netty Design
