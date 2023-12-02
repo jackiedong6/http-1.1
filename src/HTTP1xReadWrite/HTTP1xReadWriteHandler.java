@@ -14,6 +14,7 @@ import ReadWriteHandler.ReadWriteHandler;
 import HTTPInfo.*;
 
 public class HTTP1xReadWriteHandler implements ReadWriteHandler {
+    private static boolean debug = false; 
     private ByteBuffer inBuffer;
     private ByteBuffer outBuffer;
     String WWW_ROOT;
@@ -430,7 +431,7 @@ public class HTTP1xReadWriteHandler implements ReadWriteHandler {
         DEBUG("HELLO");
         // output the response body from CGI response
         for (String s : payload) {
-            DEBUG("HERE:" + s);
+            System.out.println(s);
             putString(outBuffer, s);
         }
         outBuffer.flip();
@@ -509,7 +510,9 @@ public class HTTP1xReadWriteHandler implements ReadWriteHandler {
         return UUID.randomUUID().toString();
     }
     private static void DEBUG(String s) {
-        System.out.println(s);
+        if (debug) {
+            System.out.println(s);
+        }
     }
     private void putString(ByteBuffer buf, String s) {
         byte[] bytes = s.getBytes(StandardCharsets.UTF_8);

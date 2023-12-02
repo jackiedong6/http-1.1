@@ -20,6 +20,7 @@ public class HTTPRequest {
     public static final String CONNECTION = "Connection";
     public static final String AUTHORIZATION = "Authorization";
 
+    private static boolean debug = false; 
     private String requestUrl;
     private String httpMethod;
     private String requestBody;
@@ -166,7 +167,9 @@ public class HTTPRequest {
     }
 
     private void DEBUG(String s) {
-        System.out.println(s);
+        if (debug) {
+            System.out.println(s);
+        }
     }
 
     // TODO: Verify this function

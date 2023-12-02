@@ -9,6 +9,7 @@ import java.util.*; // for Set and Iterator
 public class Dispatcher extends Thread {
 
     private Selector selector;
+    private static boolean debug = false; 
 
     public Dispatcher() {
         // create selector
@@ -97,6 +98,8 @@ public class Dispatcher extends Thread {
     } // end of run
 
     private static void DEBUG(String s) {
-        System.out.println(s);
+        if (debug) {
+            System.out.println(s);
+        }
     }
 }

@@ -14,6 +14,8 @@ public class Acceptor implements AcceptHandler {
     private String CGI_BIN;
     private ApacheConfig config;
     private Lock acceptLock; 
+    private static boolean debug = false;  
+
     public Acceptor(SocketReadWriteHandlerFactory srwf, ApacheConfig config, String CGI_BIN, Lock acceptLock) {
         this.srwf = srwf;
         this.config = config;
@@ -46,7 +48,9 @@ public class Acceptor implements AcceptHandler {
         }
     } // end of handleAccept
     private static void DEBUG(String s) {
-        System.out.println(s);
+        if (debug) {
+            System.out.println(s);
+        }
     }
 
 } // end of class
