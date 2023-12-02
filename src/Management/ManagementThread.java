@@ -8,6 +8,7 @@ import java.net.*;
 public class ManagementThread extends Thread {
     private final Dispatcher[] dispatcherThreads;
     private ServerSocket welcomeSocket; 
+    private static boolean debug = false;
 
     public ManagementThread(Dispatcher[] dispatcherThreads, ServerSocket welcomeSocket) {
         this.dispatcherThreads = dispatcherThreads;
@@ -17,7 +18,7 @@ public class ManagementThread extends Thread {
     public void run() {
         try (BufferedReader reader = new BufferedReader(new InputStreamReader(System.in))) {
             while (true) {
-                System.out.print("Server Management> ");
+                System.out.println("Server Management> ");
                 String command = reader.readLine();
                 if (command == null) {
                     continue;
@@ -26,13 +27,13 @@ public class ManagementThread extends Thread {
                 switch (command.trim()) {
                     case "shutdown":
                         welcomeSocket.close();  // This will break out the accept() method in the server's run()
-                        System.out.println("Server shutting down. Processing remaining requests...");
+                        DEBUG("Server shutting down. Processing remaining requests...");
                         for (Dispatcher dispatcherThread : dispatcherThreads) {
-                            System.out.println("Shutting down a Dispatcher thread...");
+                            DEBUG("Shutting down a Dispatcher thread...");
                             dispatcherThread.interrupt(); 
                         }
                         // System.out.println("hello world");
-                        System.out.println("All requests processed. Server shut down.");
+                        DEBUG("All requests processed. Server shut down.");
                         System.exit(0);
                         break;
                     default:
@@ -42,6 +43,12 @@ public class ManagementThread extends Thread {
             }
         } catch (Exception e) {
             System.out.println("ManagementThread encountered an error: " + e.getMessage());
+        }
+    }
+
+    private static void DEBUG(String s) {
+        if (debug) {
+            System.out.println(s);
         }
     }
 }

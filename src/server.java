@@ -13,7 +13,8 @@ import java.util.concurrent.locks.ReentrantLock;
 public class server {
     public static String CGI_BIN = "cgi-bin";
     private static ServerSocket welcomeSocket; 
-    private static Dispatcher[] dispatcherThreads; 
+    private static Dispatcher[] dispatcherThreads;
+    private static boolean debug = false;  
 
     public static ServerSocketChannel openServerChannel(int port) {
         ServerSocketChannel serverChannel = null;
@@ -73,7 +74,7 @@ public class server {
                 key.attach(acceptor);
 
                 // start dispatcher
-                System.out.println("Starting thread: " + i); 
+                DEBUG("Starting thread: " + i); 
                 dispatcherThreads[i] = dispatcher;
                 dispatcherThreads[i].start();
             }
@@ -88,7 +89,9 @@ public class server {
     } // end of main
 
     private static void DEBUG(String s) {
-        System.out.println(s);
+        if (debug) {
+            System.out.println(s);
+        }
     }
 
 } // end of class
