@@ -20,7 +20,7 @@ public class HTTPRequest {
     public static final String CONNECTION = "Connection";
     public static final String AUTHORIZATION = "Authorization";
 
-    private static boolean debug = false; 
+    private static boolean debug = false;
     private String requestUrl;
     private String httpMethod;
     private String requestBody;
@@ -222,7 +222,6 @@ public class HTTPRequest {
             try {
                 Date ifModifiedSinceDate = format.parse(ifModifiedSince);
                 Date fileLastModified = new Date(file.lastModified());
-                Date test1 = format.parse("Sun Oct 22 14:47:06 EDT 2023");
                 return fileLastModified.getTime() > ifModifiedSinceDate.getTime();
             }
             catch (ParseException e) {
@@ -251,6 +250,7 @@ public class HTTPRequest {
                 return false;
             }
             String [] credSplit = decodedCredentials.split(":");
+            DEBUG(Arrays.toString(credSplit));
             if (credSplit.length != 2) {
                 return false;
             }

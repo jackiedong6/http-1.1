@@ -14,7 +14,7 @@ import ReadWriteHandler.ReadWriteHandler;
 import HTTPInfo.*;
 
 public class HTTP1xReadWriteHandler implements ReadWriteHandler {
-    private static boolean debug = false; 
+    private static boolean debug = true;
     private ByteBuffer inBuffer;
     private ByteBuffer outBuffer;
     String WWW_ROOT;
@@ -242,6 +242,7 @@ public class HTTP1xReadWriteHandler implements ReadWriteHandler {
 
         switch (httpRequest.getHttpMethod()) {
             case ("GET"): {
+                DEBUG("IN GET REQUEST");
                 processGetRequest();
                 if (fileInfo == null) {
                     outputError();
@@ -254,9 +255,12 @@ public class HTTP1xReadWriteHandler implements ReadWriteHandler {
                     break;
                 } catch (IOException e) {
                     //
+                    break;
                 }
             }
             case ("POST"): {
+                DEBUG(httpRequest.getHttpMethod());
+                DEBUG("IN POST REQUEST");
                 processPostRequest(key);
                 putString(outBuffer,"HTTP/1.1 200 OK\r\n");
                 outputPostResponse();
@@ -333,47 +337,23 @@ public class HTTP1xReadWriteHandler implements ReadWriteHandler {
         if (!httpRequest.processAcceptHeader()) {
             errCode = 406;
             errMsg = "Not Acceptable";
-            outputError();
+            fileInfo = null;
+            return;
         }
-
         if (urlName.equals("")) {
             if (httpRequest.isMobileUserAgent()) {
                 fileName = WWW_ROOT + "index_m.html";
-                fileInfo = new File(fileName);
-                if (fileInfo.isFile()) {
-                    if (httpRequest.ifmodifiedSince(fileInfo)) {
-                        return;
-                    }
-                    else if (httpRequest.getHeader("If-Modified-Since") != null){
-                        errCode = 304;
-                        errMsg = "Not Modified";
-                        outputError();
-                        return;
-                    }
-                }
-            }
-            else {
+            } else {
                 fileName = WWW_ROOT + "index.html";
-                fileInfo = new File(fileName);
-                if(httpRequest.ifmodifiedSince(fileInfo)) {
-                    return;
-                } else if (httpRequest.getHeader("If-Modified-Since") != null) {
-                    errCode = 304;
-                    errMsg = "Not Modified";
-                    fileInfo = null;
-                    outputError();
-                    return;
-                }
             }
-            return;
+        } else {
+            fileName = WWW_ROOT + urlName;
         }
-        // If we have a mobile user agent and the mobile file extension exists, use it
-        fileName = WWW_ROOT + urlName;
         fileInfo = new File(fileName);
         if (fileInfo.isFile()) {
             if (httpRequest.ifmodifiedSince(fileInfo)) {
                 return;
-            } else if (httpRequest.getHeader("If-Modified-Since") != null){
+            } else if (httpRequest.getHeader("If-Modified-Since") != null) {
                 errCode = 304;
                 errMsg = "Not Modified";
                 fileInfo = null;
@@ -428,7 +408,6 @@ public class HTTP1xReadWriteHandler implements ReadWriteHandler {
         putString(outBuffer, "Date: " + format.format(new Date()) + "\r\n");
         putString(outBuffer, "Server: Jackie and Cesar's HTTP/1.0 Server\r\n");
 
-        DEBUG("HELLO");
         // output the response body from CGI response
         for (String s : payload) {
             System.out.println(s);
@@ -466,6 +445,7 @@ public class HTTP1xReadWriteHandler implements ReadWriteHandler {
         state = State.RESPONSE_READY;
     }
     private void outputError(){
+        DEBUG("HERE IN OUTPUT ERROR");
         putString(outBuffer,"HTTP/1.1 " + errCode + " " + errMsg + "\r\n");
         if (wwwAuthenticate) {
             putString(outBuffer, "WWW-Authenticate: " + htaccessContent.get("AuthType") + "=" + htaccessContent.get("AuthName") +"\r\n");
