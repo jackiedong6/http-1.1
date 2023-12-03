@@ -164,8 +164,15 @@ public class HTTP1xReadWriteHandler implements ReadWriteHandler {
                     state = State.PARSE_REQUEST;
                     httpRequest = new HTTPRequest(new BufferedReader(new StringReader(request.toString())));
                     httpRequest.parseRequest();
-                    if (httpRequest.getHeader("Content-Length") != null) {
-                        bodyLength = Integer.parseInt(httpRequest.getHeader("Content-Length"));
+                    if (httpRequest.getHttpMethod().equals("POST")) {
+                        if(httpRequest.getHeader("Content-Length") == null || httpRequest.getHeader("Content-Type") == null) {
+                            errCode = 500;
+                            outputError();
+                            return;
+                        }
+                        else {
+                            bodyLength = Integer.parseInt(httpRequest.getHeader("Content-Length"));
+                        }
                     }
                     DEBUG("Finished reading Headers");
                 }
@@ -179,6 +186,7 @@ public class HTTP1xReadWriteHandler implements ReadWriteHandler {
                         bodyLength--;
                     }
                     if (bodyLength == 0) {
+                        DEBUG(String.valueOf(requestBody));
                         state = State.PARSE_REQUEST;
                         break;
                     }
@@ -259,8 +267,6 @@ public class HTTP1xReadWriteHandler implements ReadWriteHandler {
                 }
             }
             case ("POST"): {
-                DEBUG(httpRequest.getHttpMethod());
-                DEBUG("IN POST REQUEST");
                 processPostRequest(key);
                 putString(outBuffer,"HTTP/1.1 200 OK\r\n");
                 outputPostResponse();
@@ -273,8 +279,10 @@ public class HTTP1xReadWriteHandler implements ReadWriteHandler {
 
         // select the cgi script to handle the request
         String[] partsOfUrl = urlName.split("/");
-        // all executable files MUST reside in cgi-bin
-        String fileName = CGI_BIN + "/" + partsOfUrl[partsOfUrl.length - 1];
+        int endIndex = WWW_ROOT.indexOf("/web/") + "/web/".length();
+        // all executable files MUST reside in home.httpd.html.zoo.classes.cs434.web.cgi-bin
+        String fileName = WWW_ROOT.substring(0, endIndex) + CGI_BIN + "/" + partsOfUrl[partsOfUrl.length - 1];
+        fileInfo = new File(fileName);
         DEBUG("filename: " + fileName); // uncommented this
         // get the arguments from the request body
         String scriptArgs = httpRequest.getRequestBody();
@@ -405,13 +413,18 @@ public class HTTP1xReadWriteHandler implements ReadWriteHandler {
         return htaccessContent;
     }
     private void outputPostResponse() {
+        putString(outBuffer, "\r\n");
         putString(outBuffer, "Date: " + format.format(new Date()) + "\r\n");
         putString(outBuffer, "Server: Jackie and Cesar's HTTP/1.0 Server\r\n");
-
+        if (fileInfo.isFile()) {
+            putString(outBuffer, "Last-Modified: " + format.format(new Date(fileInfo.lastModified())) + "\r\n");
+        }
+        putString(outBuffer, "Content-Length: " + fileInfo.length() + "\r\n");
         // output the response body from CGI response
-        for (String s : payload) {
-            System.out.println(s);
-            putString(outBuffer, s);
+        for (String str : payload) {
+            DEBUG(str);
+            putString(outBuffer, str);
+            putString(outBuffer, "\r\n");
         }
         outBuffer.flip();
         request.delete(0, request.length());
@@ -445,7 +458,6 @@ public class HTTP1xReadWriteHandler implements ReadWriteHandler {
         state = State.RESPONSE_READY;
     }
     private void outputError(){
-        DEBUG("HERE IN OUTPUT ERROR");
         putString(outBuffer,"HTTP/1.1 " + errCode + " " + errMsg + "\r\n");
         if (wwwAuthenticate) {
             putString(outBuffer, "WWW-Authenticate: " + htaccessContent.get("AuthType") + "=" + htaccessContent.get("AuthName") +"\r\n");
