@@ -491,6 +491,9 @@ public class HTTP1xReadWriteHandler implements ReadWriteHandler {
         byte[] fileInBytes = new byte[numOfBytes];
         fileStream.read(fileInBytes);
         outBuffer.put(fileInBytes);
+        if (httpRequest.keepAlive()) {
+            putString(outBuffer, "\r\n");
+        }
         outBuffer.flip();
 
         request.delete(0, request.length());
