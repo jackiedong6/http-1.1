@@ -48,6 +48,9 @@ public class HTTP1xReadWriteHandler implements ReadWriteHandler {
     boolean keepAlive;
     boolean chunkedEncoding = true;
     int bodyLength = 0;
+    private static final String END_OF_HEADERS = "\r\n\r\n";
+    private char[] lastFourChars = new char[4];
+    private int lastFourIndex = 0;
 
     public HTTP1xReadWriteHandler(ApacheConfig config, String CGI_BIN) {
         inBuffer = ByteBuffer.allocate(4096);
@@ -182,7 +185,14 @@ public class HTTP1xReadWriteHandler implements ReadWriteHandler {
             while (state != State.PARSE_REQUEST && inBuffer.hasRemaining() && request.length() < request.capacity()) {
                 char ch = (char) inBuffer.get();
                 request.append(ch);
-                if (request.toString().endsWith("\r\n\r\n")) {
+                lastFourChars[lastFourIndex % 4] = ch;
+                lastFourIndex++;
+
+                if (lastFourIndex > 3
+                        && lastFourChars[(lastFourIndex-1) % 4] == '\n'
+                        && lastFourChars[(lastFourIndex-2) % 4] == '\r'
+                        && lastFourChars[(lastFourIndex-3) % 4] == '\n'
+                        && lastFourChars[(lastFourIndex-4) % 4] == '\r') {
                     httpRequest = new HTTPRequest(request.toString());
                     httpRequest.parseRequest();
                     checkPostBody();
@@ -196,7 +206,6 @@ public class HTTP1xReadWriteHandler implements ReadWriteHandler {
                         bodyLength--;
                     }
                     if (bodyLength == 0) {
-                        DEBUG(String.valueOf(requestBody));
                         state = State.PARSE_REQUEST;
                         break;
                     }
@@ -209,6 +218,9 @@ public class HTTP1xReadWriteHandler implements ReadWriteHandler {
             processHTTPRequest(key);
         }
     } // end of process input
+
+
+
     private void processHTTPRequest(SelectionKey key) throws Exception {
         if(httpRequest.getHttpMethod() == null || httpRequest.getHttpVersion() == null|| httpRequest.getUrlName() == null) {
             errCode = 500;
@@ -353,7 +365,6 @@ public class HTTP1xReadWriteHandler implements ReadWriteHandler {
                 cgiResponse.add(line);
             }
             payload = cgiResponse;
-            DEBUG(String.valueOf(payload));
         } catch (IOException e) {
             // log error here
             DEBUG("Error in starting the cgi script");
@@ -443,7 +454,6 @@ public class HTTP1xReadWriteHandler implements ReadWriteHandler {
 
     private void outputPostBody() {
         if (chunkedEncoding) {
-            DEBUG(String.valueOf(payload));
             String contentType = "";
             for (int i = 0; i < payload.size(); i++) {
                 if (payload.get(i).startsWith("Content-Type:")) {
@@ -503,17 +513,26 @@ public class HTTP1xReadWriteHandler implements ReadWriteHandler {
         putString(outBuffer, "\r\n");
     }
     private void outputResponseBody() throws IOException {
-
-        int numOfBytes = (int) fileInfo.length();
-        FileInputStream fileStream = new FileInputStream(fileName);
-        byte[] fileInBytes = new byte[numOfBytes];
-        fileStream.read(fileInBytes);
-        outBuffer.put(fileInBytes);
+        // Assuming fileInfo is a File object referring to the file to be sent
+        try (FileInputStream fileInputStream = new FileInputStream(fileInfo);
+             FileChannel fileChannel = fileInputStream.getChannel()) {
+            int numOfBytes = (int) fileInfo.length();
+            // Ensure the buffer is large enough to hold the file content
+            if (outBuffer.capacity() < numOfBytes) {
+                // Resize buffer if necessary
+                outBuffer = ByteBuffer.allocate(numOfBytes);
+            }
+            // Read the file content directly into the buffer
+            while (fileChannel.read(outBuffer) > 0) {
+                // Continue reading until EOF
+            }
+        }
 
         if (httpRequest.keepAlive()) {
             putString(outBuffer, "\r\n");
         }
-        outBuffer.flip();
+
+        outBuffer.flip(); // Prepare the buffer for writing to the socket channel
 
         request.delete(0, request.length());
         keepAlive = httpRequest.keepAlive();
