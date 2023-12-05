@@ -12,11 +12,13 @@ import java.io.IOException;
 import ApacheConfig.*;
 import ReadWriteHandler.ReadWriteHandler;
 import HTTPInfo.*;
+import Cache.Cache;
 
 public class HTTP1xReadWriteHandler implements ReadWriteHandler {
-    private static boolean debug = true;
+    private static boolean debug = false;
     private ByteBuffer inBuffer;
     private ByteBuffer outBuffer;
+    private Cache cache;
     String WWW_ROOT;
     String CGI_BIN;
     String urlName;
@@ -56,6 +58,7 @@ public class HTTP1xReadWriteHandler implements ReadWriteHandler {
         format = new SimpleDateFormat("EEE, dd MMM yyyy HH:mm:ss z");
         format.setTimeZone(TimeZone.getTimeZone("GMT"));
         keepAlive = false;
+        cache = new Cache();
         this.config = config;
         // Set WWW Root as the first virtual host
         this.WWW_ROOT = "." + config.getVirtualHosts().get(0).getDocumentRoot() + "/";
@@ -180,7 +183,7 @@ public class HTTP1xReadWriteHandler implements ReadWriteHandler {
                 char ch = (char) inBuffer.get();
                 request.append(ch);
                 if (request.toString().endsWith("\r\n\r\n")) {
-                    httpRequest = new HTTPRequest(new BufferedReader(new StringReader(request.toString())));
+                    httpRequest = new HTTPRequest(request.toString());
                     httpRequest.parseRequest();
                     checkPostBody();
                     DEBUG("Finished reading Headers");
@@ -257,16 +260,27 @@ public class HTTP1xReadWriteHandler implements ReadWriteHandler {
 
         switch (httpRequest.getHttpMethod()) {
             case ("GET"): {
-                DEBUG("IN GET REQUEST");
                 processGetRequest();
                 if (fileInfo == null) {
                     outputError();
                     break;
                 }
-                outBuffer = ByteBuffer.allocate((int) (4096 + fileInfo.length()));
                 try {
-                    outputResponseHeader();
-                    outputResponseBody();
+                    Cache.CachedContent cachedContent = cache.get(fileName);
+                    long lastModified = fileInfo.lastModified();
+                    if (cachedContent == null || cachedContent.lastModified < lastModified) {
+                        outBuffer.clear();
+                        outputResponseHeader();
+                        outputResponseBody();
+                        cache.put(fileName, outBuffer, lastModified);
+                    }
+                    else {
+                        outBuffer = cachedContent.content;
+                        request.delete(0, request.length());
+                        keepAlive = httpRequest.keepAlive();
+                        httpRequest = null;
+                        state = State.RESPONSE_READY;
+                    }
                     break;
                 } catch (IOException e) {
                     //
@@ -352,7 +366,7 @@ public class HTTP1xReadWriteHandler implements ReadWriteHandler {
     /*
      * Handle a GET request by retrieving the static file referred to
      */
-    private void processGetRequest() {
+    private void processGetRequest() throws IOException {
         if (!httpRequest.processAcceptHeader()) {
             errCode = 406;
             errMsg = "Not Acceptable";
@@ -368,7 +382,10 @@ public class HTTP1xReadWriteHandler implements ReadWriteHandler {
         } else {
             fileName = WWW_ROOT + urlName;
         }
+
+
         fileInfo = new File(fileName);
+
         if (fileInfo.isFile()) {
             if (httpRequest.ifmodifiedSince(fileInfo)) {
                 return;
@@ -486,11 +503,13 @@ public class HTTP1xReadWriteHandler implements ReadWriteHandler {
         putString(outBuffer, "\r\n");
     }
     private void outputResponseBody() throws IOException {
+
         int numOfBytes = (int) fileInfo.length();
         FileInputStream fileStream = new FileInputStream(fileName);
         byte[] fileInBytes = new byte[numOfBytes];
         fileStream.read(fileInBytes);
         outBuffer.put(fileInBytes);
+
         if (httpRequest.keepAlive()) {
             putString(outBuffer, "\r\n");
         }
