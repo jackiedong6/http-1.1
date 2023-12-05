@@ -1,11 +1,13 @@
 package Acceptor;
 
 import java.nio.channels.*;
+import java.time.Instant;
 import java.util.concurrent.locks.Lock;
 import java.io.IOException;
 import AcceptHandler.AcceptHandler;
 import ApacheConfig.ApacheConfig;
 import SocketReadWriteHandlerFactory.SocketReadWriteHandlerFactory;
+import Timeout.TimeoutThread;
 import ReadWriteHandler.ReadWriteHandler;
 
 public class Acceptor implements AcceptHandler {
@@ -15,12 +17,14 @@ public class Acceptor implements AcceptHandler {
     private ApacheConfig config;
     private Lock acceptLock; 
     private static boolean debug = false;  
+    private TimeoutThread timeoutThread; 
 
-    public Acceptor(SocketReadWriteHandlerFactory srwf, ApacheConfig config, String CGI_BIN, Lock acceptLock) {
+    public Acceptor(SocketReadWriteHandlerFactory srwf, ApacheConfig config, String CGI_BIN, Lock acceptLock, TimeoutThread timeoutThread) {
         this.srwf = srwf;
         this.config = config;
         this.CGI_BIN = CGI_BIN;
         this.acceptLock = acceptLock;
+        this.timeoutThread = timeoutThread;
     }
 
     public void handleException() {
@@ -36,10 +40,12 @@ public class Acceptor implements AcceptHandler {
             if (client != null) {
                 DEBUG("handleAccept: Accepted connection from " + client);
                 client.configureBlocking(false); 
-                ReadWriteHandler rwH = srwf.createHandler(config, CGI_BIN);
+                ReadWriteHandler rwH = srwf.createHandler(config, CGI_BIN, timeoutThread);
                 int ops = rwH.getInitOps();
                 SelectionKey clientKey = client.register(key.selector(), ops);
                 clientKey.attach(rwH); 
+                int hashkey = timeoutThread.addSelectionKeyTimestamp(clientKey, Instant.now().getEpochSecond());
+                rwH.setSelectionHashKey(hashkey);
             } else {
                 DEBUG("handleAccept: client was null, no connection accepted");
             }

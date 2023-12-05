@@ -1,18 +1,22 @@
 package Management;
 
 import Dispatcher.Dispatcher;
+import Timeout.TimeoutThread;
+
 import java.io.BufferedReader;
 import java.io.InputStreamReader;
 import java.net.*;
 
 public class ManagementThread extends Thread {
     private final Dispatcher[] dispatcherThreads;
+    private TimeoutThread timeoutThread; 
     private ServerSocket welcomeSocket; 
     private static boolean debug = false;
 
-    public ManagementThread(Dispatcher[] dispatcherThreads, ServerSocket welcomeSocket) {
+    public ManagementThread(Dispatcher[] dispatcherThreads, TimeoutThread timeoutThread, ServerSocket welcomeSocket) {
         this.dispatcherThreads = dispatcherThreads;
-        this.welcomeSocket = welcomeSocket; 
+        this.welcomeSocket = welcomeSocket;
+        this.timeoutThread = timeoutThread;
     }
 
     public void run() {
@@ -27,6 +31,7 @@ public class ManagementThread extends Thread {
                 switch (command.trim()) {
                     case "shutdown":
                         welcomeSocket.close();  // This will break out the accept() method in the server's run()
+                        timeoutThread.interrupt(); 
                         DEBUG("Server shutting down. Processing remaining requests...");
                         for (Dispatcher dispatcherThread : dispatcherThreads) {
                             DEBUG("Shutting down a Dispatcher thread...");

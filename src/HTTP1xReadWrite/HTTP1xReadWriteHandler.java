@@ -2,15 +2,16 @@ package HTTP1xReadWrite;
 
 import java.net.Socket;
 import java.text.SimpleDateFormat;
+import java.time.Instant;
 import java.util.*;
 import java.io.*;
 import java.nio.*;
 import java.nio.charset.StandardCharsets;
 import java.nio.channels.*;
-import java.io.IOException;
 
 import ApacheConfig.*;
 import ReadWriteHandler.ReadWriteHandler;
+import Timeout.TimeoutThread;
 import HTTPInfo.*;
 
 public class HTTP1xReadWriteHandler implements ReadWriteHandler {
@@ -46,8 +47,10 @@ public class HTTP1xReadWriteHandler implements ReadWriteHandler {
     boolean keepAlive;
     boolean readBody = false;
     int bodyLength = 0;
+    int selectionHashKey = -1; 
+    private TimeoutThread timeoutThread; 
 
-    public HTTP1xReadWriteHandler(ApacheConfig config, String CGI_BIN) {
+    public HTTP1xReadWriteHandler(ApacheConfig config, String CGI_BIN, TimeoutThread timeoutThread) {
         inBuffer = ByteBuffer.allocate(4096);
         outBuffer = ByteBuffer.allocate(4096);
         request = new StringBuffer(4096);
@@ -61,6 +64,13 @@ public class HTTP1xReadWriteHandler implements ReadWriteHandler {
         this.WWW_ROOT = "." + config.getVirtualHosts().get(0).getDocumentRoot() + "/";
         this.payload = null;
         this.CGI_BIN = CGI_BIN;
+        this.timeoutThread = timeoutThread;
+    }
+    public void setSelectionHashKey(int hashkey) {
+        selectionHashKey = hashkey; 
+    }
+    public int getSelectionHashKey() {
+        return selectionHashKey; 
     }
     public int getInitOps() {
         return SelectionKey.OP_READ;
@@ -95,10 +105,14 @@ public class HTTP1xReadWriteHandler implements ReadWriteHandler {
             try {
                 key.channel().close();
                 key.cancel();
+                this.setSelectionHashKey(-1);
             } catch (IOException e) {
                 // handle exception, e.g., log it
             }
             return;
+        } else {
+            // if the response hasnt been sent, then add this back to the timeout loop
+            this.setSelectionHashKey(timeoutThread.addSelectionKeyTimestamp(key, Instant.now().getEpochSecond()));
         }
         int nextState = key.interestOps();
         switch (state) {

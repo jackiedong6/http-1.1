@@ -5,6 +5,7 @@ import ApacheConfig.ApacheConfig;
 import Dispatcher.Dispatcher;
 import Acceptor.Acceptor;
 import SocketReadWriteHandlerFactory.SocketReadWriteHandlerFactory;
+import Timeout.TimeoutThread;
 import HTTP1xReadWrite.HTTP1xReadWriteHandlerFactory;
 import Management.ManagementThread;
 
@@ -62,24 +63,30 @@ public class server {
             // start n select loops 
             int numSelectLoops = config.getNumSelectLoops();
             dispatcherThreads = new Dispatcher[numSelectLoops]; 
+            TimeoutThread timeoutThread = new TimeoutThread();
+            ManagementThread management = new ManagementThread(dispatcherThreads, timeoutThread, welcomeSocket);
             for (int i = 0; i < numSelectLoops; i++) {
                 // get dispacher/selector
-                Dispatcher dispatcher = new Dispatcher();
+                Dispatcher dispatcher = new Dispatcher(timeoutThread);
 
                 // create server acceptor for Echo Line ReadWrite Handler 
                 SocketReadWriteHandlerFactory readWriteFactory = new HTTP1xReadWriteHandlerFactory(); 
-                Acceptor acceptor = new Acceptor(readWriteFactory, config, CGI_BIN, acceptLock); 
+                Acceptor acceptor = new Acceptor(readWriteFactory, config, CGI_BIN, acceptLock, timeoutThread); 
                 
                 SelectionKey key = sch.register(dispatcher.selector(), SelectionKey.OP_ACCEPT);
                 key.attach(acceptor);
 
-                // start dispatcher
-                DEBUG("Starting thread: " + i); 
+                // add to pool of dispatcher threads 
                 dispatcherThreads[i] = dispatcher;
-                dispatcherThreads[i].start();
             }
-            ManagementThread management = new ManagementThread(dispatcherThreads, welcomeSocket); 
+            DEBUG("Starting timeout thread...");
+            timeoutThread.start();
+            DEBUG("Starting Management thread");
             management.start();
+            DEBUG("Starting Dispatcher threads");
+            for (int k = 0; k < numSelectLoops; k++) {
+                dispatcherThreads[k].start();
+            }
         } catch (IOException ex) {
             System.out.println("Cannot register and start server");
             System.exit(1);
