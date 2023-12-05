@@ -13,11 +13,13 @@ import ApacheConfig.*;
 import ReadWriteHandler.ReadWriteHandler;
 import Timeout.TimeoutThread;
 import HTTPInfo.*;
+import Cache.Cache;
 
 public class HTTP1xReadWriteHandler implements ReadWriteHandler {
-    private static boolean debug = false; 
+    private static boolean debug = false;
     private ByteBuffer inBuffer;
     private ByteBuffer outBuffer;
+    private Cache cache;
     String WWW_ROOT;
     String CGI_BIN;
     String urlName;
@@ -45,8 +47,11 @@ public class HTTP1xReadWriteHandler implements ReadWriteHandler {
     ArrayList<String> payload;
     ApacheConfig config;
     boolean keepAlive;
-    boolean readBody = false;
+    boolean chunkedEncoding = true;
     int bodyLength = 0;
+    private static final String END_OF_HEADERS = "\r\n\r\n";
+    private char[] lastFourChars = new char[4];
+    private int lastFourIndex = 0;
     int selectionHashKey = -1; 
     private TimeoutThread timeoutThread; 
 
@@ -59,6 +64,7 @@ public class HTTP1xReadWriteHandler implements ReadWriteHandler {
         format = new SimpleDateFormat("EEE, dd MMM yyyy HH:mm:ss z");
         format.setTimeZone(TimeZone.getTimeZone("GMT"));
         keepAlive = false;
+        cache = new Cache();
         this.config = config;
         // Set WWW Root as the first virtual host
         this.WWW_ROOT = "." + config.getVirtualHosts().get(0).getDocumentRoot() + "/";
@@ -159,6 +165,25 @@ public class HTTP1xReadWriteHandler implements ReadWriteHandler {
         // try {Thread.sleep(5000);} catch (InterruptedException e) {}
         DEBUG("handleWrite->");
     } // end of handleWrite
+
+    private void checkPostBody() {
+        if (httpRequest.getHttpMethod().equals("POST")) {
+            // If option 1 is null or option 2 is null
+            // If option 1 is not null and option 2 is not null
+            if (httpRequest.getHeader("Content-Length") == null || httpRequest.getHeader("Content-Type") == null){
+                errCode = 500;
+                outputError();
+                return;
+            }
+            if (httpRequest.getHeader("Content-Length") != null) {
+                bodyLength = Integer.parseInt(httpRequest.getHeader("Content-Length"));
+                state = State.READ_BODY;
+            }
+        }
+        else {
+            state = State.PARSE_REQUEST;
+        }
+    }
     private void processInBuffer(SelectionKey key) throws Exception {
         DEBUG("processInBuffer");
         SocketChannel client = (SocketChannel) key.channel();
@@ -174,18 +199,20 @@ public class HTTP1xReadWriteHandler implements ReadWriteHandler {
             while (state != State.PARSE_REQUEST && inBuffer.hasRemaining() && request.length() < request.capacity()) {
                 char ch = (char) inBuffer.get();
                 request.append(ch);
-                if (request.toString().endsWith("\r\n\r\n")) {
-                    state = State.PARSE_REQUEST;
-                    httpRequest = new HTTPRequest(new BufferedReader(new StringReader(request.toString())));
+                lastFourChars[lastFourIndex % 4] = ch;
+                lastFourIndex++;
+
+                if (lastFourIndex > 3
+                        && lastFourChars[(lastFourIndex-1) % 4] == '\n'
+                        && lastFourChars[(lastFourIndex-2) % 4] == '\r'
+                        && lastFourChars[(lastFourIndex-3) % 4] == '\n'
+                        && lastFourChars[(lastFourIndex-4) % 4] == '\r') {
+                    httpRequest = new HTTPRequest(request.toString());
                     httpRequest.parseRequest();
-                    if (httpRequest.getHeader("Content-Length") != null) {
-                        bodyLength = Integer.parseInt(httpRequest.getHeader("Content-Length"));
-                    }
+                    checkPostBody();
                     DEBUG("Finished reading Headers");
                 }
-                if (bodyLength > 0 && state == State.PARSE_REQUEST) {
-                    state = State.READ_BODY;
-                }
+
                 if (state == State.READ_BODY) {
                     while(bodyLength > 0 && inBuffer.hasRemaining() && request.length() < request.capacity()) {
                         ch = (char) inBuffer.get();
@@ -205,6 +232,9 @@ public class HTTP1xReadWriteHandler implements ReadWriteHandler {
             processHTTPRequest(key);
         }
     } // end of process input
+
+
+
     private void processHTTPRequest(SelectionKey key) throws Exception {
         if(httpRequest.getHttpMethod() == null || httpRequest.getHttpVersion() == null|| httpRequest.getUrlName() == null) {
             errCode = 500;
@@ -261,13 +291,26 @@ public class HTTP1xReadWriteHandler implements ReadWriteHandler {
                     outputError();
                     break;
                 }
-                outBuffer = ByteBuffer.allocate((int) (4096 + fileInfo.length()));
                 try {
-                    outputResponseHeader();
-                    outputResponseBody();
+                    Cache.CachedContent cachedContent = cache.get(fileName);
+                    long lastModified = fileInfo.lastModified();
+                    if (cachedContent == null || cachedContent.lastModified < lastModified) {
+                        outBuffer.clear();
+                        outputResponseHeader();
+                        outputResponseBody();
+                        cache.put(fileName, outBuffer, lastModified);
+                    }
+                    else {
+                        outBuffer = cachedContent.content;
+                        request.delete(0, request.length());
+                        keepAlive = httpRequest.keepAlive();
+                        httpRequest = null;
+                        state = State.RESPONSE_READY;
+                    }
                     break;
                 } catch (IOException e) {
                     //
+                    break;
                 }
             }
             case ("POST"): {
@@ -280,11 +323,13 @@ public class HTTP1xReadWriteHandler implements ReadWriteHandler {
     }
     private void processPostRequest(SelectionKey key) throws Exception {
         httpRequest.parseBody(new BufferedReader(new StringReader(requestBody.toString())));
-
         // select the cgi script to handle the request
-        String[] partsOfUrl = urlName.split("/");
-        // all executable files MUST reside in cgi-bin
-        String fileName = CGI_BIN + "/" + partsOfUrl[partsOfUrl.length - 1];
+        String[] partsOfUrl = urlName.split("\\?");
+        int endIndex = WWW_ROOT.indexOf("/web/") + "/web/".length();
+        // all executable files MUST reside in home.httpd.html.zoo.classes.cs434.web.cgi-bin
+        String fileName = WWW_ROOT.substring(0, endIndex) + CGI_BIN + "/" + partsOfUrl[0];
+        fileInfo = new File(fileName);
+        DEBUG(Arrays.toString(partsOfUrl));
         DEBUG("filename: " + fileName); // uncommented this
         // get the arguments from the request body
         String scriptArgs = httpRequest.getRequestBody();
@@ -293,17 +338,18 @@ public class HTTP1xReadWriteHandler implements ReadWriteHandler {
         SocketChannel client = (SocketChannel) key.channel();
         Socket socket = client.socket();
         String clientNetworkAddress = socket.getInetAddress().getHostAddress();
-        String fullyQualifiedDomainName = "";
+        String fullyQualifiedDomainName = socket.getInetAddress().getCanonicalHostName();;
         String remoteIdentity = "";
         String remoteUser = "";
         String serverName = config.getVirtualHosts().get(0).getServerName();
         String currentServerPort = "6789";
         String serverProtocol = httpRequest.getHttpVersion();
-        String serverSoftware = "";
+        String serverSoftware = "Jackie and Cesar's HTTP/1.0 Server";
+
         // set environment variables
         Map<String, String> env = pb.environment();
 
-        env.put("QUERY_STRING", scriptArgs);
+        env.put("QUERY_STRING", partsOfUrl[1]);
         env.put("REQUEST_METHOD", httpRequest.getHttpMethod());
         env.put("REMOTE_ADDR", clientNetworkAddress); // set to network address of the client sending the request to the server
         env.put("REMOTE_HOST", fullyQualifiedDomainName); // set to fully qualified domain name of client (or NULL)
@@ -313,16 +359,19 @@ public class HTTP1xReadWriteHandler implements ReadWriteHandler {
         env.put("SERVER_PORT", currentServerPort); // set to the TCP/IP port number on which this request is received
         env.put("SERVER_PROTOCOL", serverProtocol); // set to name and version of the application protocol used for this CGI request
         env.put("SERVER_SOFTWARE", serverSoftware);
-
         // redirect the stdout of the script to a file descriptor
         pb.redirectOutput(ProcessBuilder.Redirect.PIPE);
+
         try {
             // run the executable with the args passed in
             Process p = pb.start();
+            try (OutputStream stdin = p.getOutputStream()) {
+                stdin.write(scriptArgs.getBytes());
+                stdin.flush();
+            } // Automatically closes the stream
             // convert the cgi response into an HTTP response
             InputStream cgiResponseStream = p.getInputStream(); // read data from the stdout of the process p
             BufferedReader reader = new BufferedReader(new InputStreamReader(cgiResponseStream));
-
             ArrayList<String> cgiResponse = new ArrayList<>();
             String line;
             // Record the script response line-by-line
@@ -330,7 +379,6 @@ public class HTTP1xReadWriteHandler implements ReadWriteHandler {
                 cgiResponse.add(line);
             }
             payload = cgiResponse;
-
         } catch (IOException e) {
             // log error here
             DEBUG("Error in starting the cgi script");
@@ -343,51 +391,30 @@ public class HTTP1xReadWriteHandler implements ReadWriteHandler {
     /*
      * Handle a GET request by retrieving the static file referred to
      */
-    private void processGetRequest() {
+    private void processGetRequest() throws IOException {
         if (!httpRequest.processAcceptHeader()) {
             errCode = 406;
             errMsg = "Not Acceptable";
-            outputError();
+            fileInfo = null;
+            return;
         }
-
         if (urlName.equals("")) {
             if (httpRequest.isMobileUserAgent()) {
                 fileName = WWW_ROOT + "index_m.html";
-                fileInfo = new File(fileName);
-                if (fileInfo.isFile()) {
-                    if (httpRequest.ifmodifiedSince(fileInfo)) {
-                        return;
-                    }
-                    else if (httpRequest.getHeader("If-Modified-Since") != null){
-                        errCode = 304;
-                        errMsg = "Not Modified";
-                        outputError();
-                        return;
-                    }
-                }
-            }
-            else {
+            } else {
                 fileName = WWW_ROOT + "index.html";
-                fileInfo = new File(fileName);
-                if(httpRequest.ifmodifiedSince(fileInfo)) {
-                    return;
-                } else if (httpRequest.getHeader("If-Modified-Since") != null) {
-                    errCode = 304;
-                    errMsg = "Not Modified";
-                    fileInfo = null;
-                    outputError();
-                    return;
-                }
             }
-            return;
+        } else {
+            fileName = WWW_ROOT + urlName;
         }
-        // If we have a mobile user agent and the mobile file extension exists, use it
-        fileName = WWW_ROOT + urlName;
+
+
         fileInfo = new File(fileName);
+
         if (fileInfo.isFile()) {
             if (httpRequest.ifmodifiedSince(fileInfo)) {
                 return;
-            } else if (httpRequest.getHeader("If-Modified-Since") != null){
+            } else if (httpRequest.getHeader("If-Modified-Since") != null) {
                 errCode = 304;
                 errMsg = "Not Modified";
                 fileInfo = null;
@@ -438,16 +465,49 @@ public class HTTP1xReadWriteHandler implements ReadWriteHandler {
         }
         return htaccessContent;
     }
+
+    private void outputPostBody() {
+        if (chunkedEncoding) {
+            String contentType = "";
+            for (int i = 0; i < payload.size(); i++) {
+                if (payload.get(i).startsWith("Content-Type:")) {
+                    contentType = payload.get(i);
+                    payload.remove(i);
+                }
+            }
+            putString(outBuffer, "Transfer-Encoding: chunked\r\n");
+            putString(outBuffer, contentType);
+            putString(outBuffer, "\r\n\r\n");
+            for (String str: payload) {
+                if(str.isEmpty()) {
+                    continue;
+                }
+                putString(outBuffer, String.valueOf(str.length()));
+                putString(outBuffer, "\r\n");
+                putString(outBuffer, str);
+                putString(outBuffer, "\r\n");
+            }
+            putString(outBuffer, "0\r\n");
+            putString(outBuffer, "\r\n");
+        } else {
+            if (fileInfo.isFile()) {
+                putString(outBuffer, "Last-Modified: " + format.format(new Date(fileInfo.lastModified())) + "\r\n");
+            }
+            putString(outBuffer, "Content-Length: " + fileInfo.length() + "\r\n");
+            for (String str : payload) {
+                DEBUG(str);
+                putString(outBuffer, str);
+                putString(outBuffer, "\r\n");
+            }
+        }
+    }
+
     private void outputPostResponse() {
+        putString(outBuffer, "\r\n");
         putString(outBuffer, "Date: " + format.format(new Date()) + "\r\n");
         putString(outBuffer, "Server: Jackie and Cesar's HTTP/1.0 Server\r\n");
-
-        DEBUG("HELLO");
         // output the response body from CGI response
-        for (String s : payload) {
-            System.out.println(s);
-            putString(outBuffer, s);
-        }
+        outputPostBody();
         outBuffer.flip();
         request.delete(0, request.length());
         keepAlive = httpRequest.keepAlive();
@@ -467,12 +527,26 @@ public class HTTP1xReadWriteHandler implements ReadWriteHandler {
         putString(outBuffer, "\r\n");
     }
     private void outputResponseBody() throws IOException {
-        int numOfBytes = (int) fileInfo.length();
-        FileInputStream fileStream = new FileInputStream(fileName);
-        byte[] fileInBytes = new byte[numOfBytes];
-        fileStream.read(fileInBytes);
-        outBuffer.put(fileInBytes);
-        outBuffer.flip();
+        // Assuming fileInfo is a File object referring to the file to be sent
+        try (FileInputStream fileInputStream = new FileInputStream(fileInfo);
+             FileChannel fileChannel = fileInputStream.getChannel()) {
+            int numOfBytes = (int) fileInfo.length();
+            // Ensure the buffer is large enough to hold the file content
+            if (outBuffer.capacity() < numOfBytes) {
+                // Resize buffer if necessary
+                outBuffer = ByteBuffer.allocate(numOfBytes);
+            }
+            // Read the file content directly into the buffer
+            while (fileChannel.read(outBuffer) > 0) {
+                // Continue reading until EOF
+            }
+        }
+
+        if (httpRequest.keepAlive()) {
+            putString(outBuffer, "\r\n");
+        }
+
+        outBuffer.flip(); // Prepare the buffer for writing to the socket channel
 
         request.delete(0, request.length());
         keepAlive = httpRequest.keepAlive();

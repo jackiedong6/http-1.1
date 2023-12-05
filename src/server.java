@@ -54,8 +54,7 @@ public class server {
         ServerSocketChannel sch = openServerChannel(config.getServerPort());
 
         // create a lock to keep separate threads from accessing the same accept connection 
-        Lock acceptLock = new ReentrantLock(); 
-
+        Lock acceptLock = new ReentrantLock();
         try {
             /*
              * create n dispatchers to provide nSelectLoops 

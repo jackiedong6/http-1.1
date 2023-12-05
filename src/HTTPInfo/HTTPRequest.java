@@ -20,17 +20,17 @@ public class HTTPRequest {
     public static final String CONNECTION = "Connection";
     public static final String AUTHORIZATION = "Authorization";
 
-    private static boolean debug = false; 
+    private static boolean debug = false;
     private String requestUrl;
     private String httpMethod;
     private String requestBody;
     private String httpVersion;
-    private BufferedReader requestReader;
+    private String requestString;
     private HashMap<String, String> allHeaders; // HashMap containing the headers for this message
     SimpleDateFormat format; // HTTP Time Format
 
-    public HTTPRequest(BufferedReader requestReader) {
-        this.requestReader = requestReader;
+    public HTTPRequest(String requestString) {
+        this.requestString = requestString;
         this.allHeaders = new HashMap<>();
         format = new SimpleDateFormat("EEE, dd MMM yyyy HH:mm:ss z");
         format.setTimeZone(TimeZone.getTimeZone("GMT"));
@@ -92,34 +92,60 @@ public class HTTPRequest {
     }
 
     public void parseRequest() throws Exception {
-        String requestMessageLine = requestReader.readLine();
-        DEBUG("Request: " + requestMessageLine);
-        String[] request = requestMessageLine.split("\\s");
+        String[] lines = requestString.split("\r\n"); // Adjust based on your request's line delimiter
 
-        if (request.length != 3) {
+        // Process the request line
+        String[] requestParts = lines[0].split("\\s");
+        if (requestParts.length != 3) {
             return;
         }
-        this.httpMethod = request[0];
-        this.requestUrl = request[1];
-        this.httpVersion = request[2];
+        this.httpMethod = requestParts[0];
+        this.requestUrl = requestParts[1].startsWith("/") ? requestParts[1].substring(1) : requestParts[1];
+        this.httpVersion = requestParts[2];
 
-        if (requestUrl.startsWith("/")) {
-            requestUrl = requestUrl.substring(1);
-        }
+        // Process headers
+        for (int i = 1; i < lines.length; i++) {
+            String line = lines[i];
+            if (line.isEmpty()) break; // Assuming empty line denotes end of headers
 
-        String requestHeaderLine = requestReader.readLine();
-
-        while (!requestHeaderLine.equals("")) {
-            if (requestHeaderLine.contains(": ")) {
-                String[] headerParts = requestHeaderLine.split(": ", 2);
-                setHeader(headerParts[0], headerParts[1]);
+            int colonIndex = line.indexOf(": ");
+            if (colonIndex != -1) {
+                setHeader(line.substring(0, colonIndex), line.substring(colonIndex + 2));
             }
-            requestHeaderLine = requestReader.readLine();
         }
 
         DEBUG(String.valueOf(allHeaders));
-
     }
+
+//
+//    public void parseRequest() throws Exception {
+//        String requestMessageLine = requestReader.readLine();
+//        DEBUG("Request: " + requestMessageLine);
+//        String[] request = requestMessageLine.split("\\s");
+//
+//        if (request.length != 3) {
+//            return;
+//        }
+//        this.httpMethod = request[0];
+//        this.requestUrl = request[1];
+//        this.httpVersion = request[2];
+//
+//        if (requestUrl.startsWith("/")) {
+//            requestUrl = requestUrl.substring(1);
+//        }
+//
+//        String requestHeaderLine = requestReader.readLine();
+//
+//        while (!requestHeaderLine.equals("")) {
+//            if (requestHeaderLine.contains(": ")) {
+//                String[] headerParts = requestHeaderLine.split(": ", 2);
+//                setHeader(headerParts[0], headerParts[1]);
+//            }
+//            requestHeaderLine = requestReader.readLine();
+//        }
+//
+//        DEBUG(String.valueOf(allHeaders));
+//    }
 
     public void parseBody(BufferedReader bodyReader) throws Exception{
         StringBuilder requestBodyBuilder = new StringBuilder();
@@ -147,7 +173,7 @@ public class HTTPRequest {
             }
             case ("application/json"):
             {
-                String jsonFileName = requestReader.readLine();
+//                String jsonFileName = requestReader.readLine();
                 // DEBUG("jsonFileName: " + jsonFileName);
                 //TODO: parse the contents of the file
                 break;
@@ -222,7 +248,6 @@ public class HTTPRequest {
             try {
                 Date ifModifiedSinceDate = format.parse(ifModifiedSince);
                 Date fileLastModified = new Date(file.lastModified());
-                Date test1 = format.parse("Sun Oct 22 14:47:06 EDT 2023");
                 return fileLastModified.getTime() > ifModifiedSinceDate.getTime();
             }
             catch (ParseException e) {
@@ -251,6 +276,7 @@ public class HTTPRequest {
                 return false;
             }
             String [] credSplit = decodedCredentials.split(":");
+            DEBUG(Arrays.toString(credSplit));
             if (credSplit.length != 2) {
                 return false;
             }
@@ -263,7 +289,4 @@ public class HTTPRequest {
         return false;
     }
 
-    public void setRequestReader(BufferedReader requestReader) {
-        this.requestReader = requestReader;
-    }
 }

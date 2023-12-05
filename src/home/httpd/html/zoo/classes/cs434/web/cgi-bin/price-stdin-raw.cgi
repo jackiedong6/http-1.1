@@ -14,8 +14,8 @@ if ($company =~ /appl/) {
 
 print "<p>Debug: all environment variables:";
 print "<pre>";
-foreach (sort keys %ENV) { 
-  print "$_  =  $ENV{$_}\n"; 
+foreach (sort keys %ENV) {
+  print "$_  =  $ENV{$_}\n";
 }
 print "</pre>";
 
