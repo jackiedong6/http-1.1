@@ -44,7 +44,7 @@ public class HTTP1xReadWriteHandler implements ReadWriteHandler {
     ArrayList<String> payload;
     ApacheConfig config;
     boolean keepAlive;
-    boolean readBody = false;
+    boolean chunkedEncoding = true;
     int bodyLength = 0;
 
     public HTTP1xReadWriteHandler(ApacheConfig config, String CGI_BIN) {
@@ -145,6 +145,25 @@ public class HTTP1xReadWriteHandler implements ReadWriteHandler {
         // try {Thread.sleep(5000);} catch (InterruptedException e) {}
         DEBUG("handleWrite->");
     } // end of handleWrite
+
+    private void checkPostBody() {
+        if (httpRequest.getHttpMethod().equals("POST")) {
+            // If option 1 is null or option 2 is null
+            // If option 1 is not null and option 2 is not null
+            if (httpRequest.getHeader("Content-Length") == null || httpRequest.getHeader("Content-Type") == null){
+                errCode = 500;
+                outputError();
+                return;
+            }
+            if (httpRequest.getHeader("Content-Length") != null) {
+                bodyLength = Integer.parseInt(httpRequest.getHeader("Content-Length"));
+                state = State.READ_BODY;
+            }
+        }
+        else {
+            state = State.PARSE_REQUEST;
+        }
+    }
     private void processInBuffer(SelectionKey key) throws Exception {
         DEBUG("processInBuffer");
         SocketChannel client = (SocketChannel) key.channel();
@@ -161,24 +180,12 @@ public class HTTP1xReadWriteHandler implements ReadWriteHandler {
                 char ch = (char) inBuffer.get();
                 request.append(ch);
                 if (request.toString().endsWith("\r\n\r\n")) {
-                    state = State.PARSE_REQUEST;
                     httpRequest = new HTTPRequest(new BufferedReader(new StringReader(request.toString())));
                     httpRequest.parseRequest();
-                    if (httpRequest.getHttpMethod().equals("POST")) {
-                        if(httpRequest.getHeader("Content-Length") == null || httpRequest.getHeader("Content-Type") == null) {
-                            errCode = 500;
-                            outputError();
-                            return;
-                        }
-                        else {
-                            bodyLength = Integer.parseInt(httpRequest.getHeader("Content-Length"));
-                        }
-                    }
+                    checkPostBody();
                     DEBUG("Finished reading Headers");
                 }
-                if (bodyLength > 0 && state == State.PARSE_REQUEST) {
-                    state = State.READ_BODY;
-                }
+
                 if (state == State.READ_BODY) {
                     while(bodyLength > 0 && inBuffer.hasRemaining() && request.length() < request.capacity()) {
                         ch = (char) inBuffer.get();
@@ -276,13 +283,13 @@ public class HTTP1xReadWriteHandler implements ReadWriteHandler {
     }
     private void processPostRequest(SelectionKey key) throws Exception {
         httpRequest.parseBody(new BufferedReader(new StringReader(requestBody.toString())));
-
         // select the cgi script to handle the request
-        String[] partsOfUrl = urlName.split("/");
+        String[] partsOfUrl = urlName.split("\\?");
         int endIndex = WWW_ROOT.indexOf("/web/") + "/web/".length();
         // all executable files MUST reside in home.httpd.html.zoo.classes.cs434.web.cgi-bin
-        String fileName = WWW_ROOT.substring(0, endIndex) + CGI_BIN + "/" + partsOfUrl[partsOfUrl.length - 1];
+        String fileName = WWW_ROOT.substring(0, endIndex) + CGI_BIN + "/" + partsOfUrl[0];
         fileInfo = new File(fileName);
+        DEBUG(Arrays.toString(partsOfUrl));
         DEBUG("filename: " + fileName); // uncommented this
         // get the arguments from the request body
         String scriptArgs = httpRequest.getRequestBody();
@@ -291,17 +298,18 @@ public class HTTP1xReadWriteHandler implements ReadWriteHandler {
         SocketChannel client = (SocketChannel) key.channel();
         Socket socket = client.socket();
         String clientNetworkAddress = socket.getInetAddress().getHostAddress();
-        String fullyQualifiedDomainName = "";
+        String fullyQualifiedDomainName = socket.getInetAddress().getCanonicalHostName();;
         String remoteIdentity = "";
         String remoteUser = "";
         String serverName = config.getVirtualHosts().get(0).getServerName();
         String currentServerPort = "6789";
         String serverProtocol = httpRequest.getHttpVersion();
-        String serverSoftware = "";
+        String serverSoftware = "Jackie and Cesar's HTTP/1.0 Server";
+
         // set environment variables
         Map<String, String> env = pb.environment();
 
-        env.put("QUERY_STRING", scriptArgs);
+        env.put("QUERY_STRING", partsOfUrl[1]);
         env.put("REQUEST_METHOD", httpRequest.getHttpMethod());
         env.put("REMOTE_ADDR", clientNetworkAddress); // set to network address of the client sending the request to the server
         env.put("REMOTE_HOST", fullyQualifiedDomainName); // set to fully qualified domain name of client (or NULL)
@@ -311,16 +319,19 @@ public class HTTP1xReadWriteHandler implements ReadWriteHandler {
         env.put("SERVER_PORT", currentServerPort); // set to the TCP/IP port number on which this request is received
         env.put("SERVER_PROTOCOL", serverProtocol); // set to name and version of the application protocol used for this CGI request
         env.put("SERVER_SOFTWARE", serverSoftware);
-
         // redirect the stdout of the script to a file descriptor
         pb.redirectOutput(ProcessBuilder.Redirect.PIPE);
+
         try {
             // run the executable with the args passed in
             Process p = pb.start();
+            try (OutputStream stdin = p.getOutputStream()) {
+                stdin.write(scriptArgs.getBytes());
+                stdin.flush();
+            } // Automatically closes the stream
             // convert the cgi response into an HTTP response
             InputStream cgiResponseStream = p.getInputStream(); // read data from the stdout of the process p
             BufferedReader reader = new BufferedReader(new InputStreamReader(cgiResponseStream));
-
             ArrayList<String> cgiResponse = new ArrayList<>();
             String line;
             // Record the script response line-by-line
@@ -328,7 +339,7 @@ public class HTTP1xReadWriteHandler implements ReadWriteHandler {
                 cgiResponse.add(line);
             }
             payload = cgiResponse;
-
+            DEBUG(String.valueOf(payload));
         } catch (IOException e) {
             // log error here
             DEBUG("Error in starting the cgi script");
@@ -412,20 +423,50 @@ public class HTTP1xReadWriteHandler implements ReadWriteHandler {
         }
         return htaccessContent;
     }
+
+    private void outputPostBody() {
+        if (chunkedEncoding) {
+            DEBUG(String.valueOf(payload));
+            String contentType = "";
+            for (int i = 0; i < payload.size(); i++) {
+                if (payload.get(i).startsWith("Content-Type:")) {
+                    contentType = payload.get(i);
+                    payload.remove(i);
+                }
+            }
+            putString(outBuffer, "Transfer-Encoding: chunked\r\n");
+            putString(outBuffer, contentType);
+            putString(outBuffer, "\r\n\r\n");
+            for (String str: payload) {
+                if(str.isEmpty()) {
+                    continue;
+                }
+                putString(outBuffer, String.valueOf(str.length()));
+                putString(outBuffer, "\r\n");
+                putString(outBuffer, str);
+                putString(outBuffer, "\r\n");
+            }
+            putString(outBuffer, "0\r\n");
+            putString(outBuffer, "\r\n");
+        } else {
+            if (fileInfo.isFile()) {
+                putString(outBuffer, "Last-Modified: " + format.format(new Date(fileInfo.lastModified())) + "\r\n");
+            }
+            putString(outBuffer, "Content-Length: " + fileInfo.length() + "\r\n");
+            for (String str : payload) {
+                DEBUG(str);
+                putString(outBuffer, str);
+                putString(outBuffer, "\r\n");
+            }
+        }
+    }
+
     private void outputPostResponse() {
         putString(outBuffer, "\r\n");
         putString(outBuffer, "Date: " + format.format(new Date()) + "\r\n");
         putString(outBuffer, "Server: Jackie and Cesar's HTTP/1.0 Server\r\n");
-        if (fileInfo.isFile()) {
-            putString(outBuffer, "Last-Modified: " + format.format(new Date(fileInfo.lastModified())) + "\r\n");
-        }
-        putString(outBuffer, "Content-Length: " + fileInfo.length() + "\r\n");
         // output the response body from CGI response
-        for (String str : payload) {
-            DEBUG(str);
-            putString(outBuffer, str);
-            putString(outBuffer, "\r\n");
-        }
+        outputPostBody();
         outBuffer.flip();
         request.delete(0, request.length());
         keepAlive = httpRequest.keepAlive();
