@@ -134,6 +134,7 @@ public class HTTP1xReadWriteHandler implements ReadWriteHandler {
                 httpRequest = null;
             }
             else {
+                DEBUG(String.valueOf(outBuffer));
                 state = State.RESPONSE_SENT;
             }
         }
@@ -518,7 +519,7 @@ public class HTTP1xReadWriteHandler implements ReadWriteHandler {
             int numOfBytes = (int) fileInfo.length();
             // Ensure the buffer is large enough to hold the file content
             if (outBuffer.capacity() < numOfBytes) {
-                ByteBuffer tempBuffer = ByteBuffer.allocate(numOfBytes);
+                ByteBuffer tempBuffer = ByteBuffer.allocate(numOfBytes + outBuffer.position());
                 outBuffer.flip(); // Switch to reading mode to read existing data
                 tempBuffer.put(outBuffer); // Copy existing data to the new buffer
                 outBuffer = tempBuffer; // Replace outBuffer with the new buffer
@@ -535,8 +536,6 @@ public class HTTP1xReadWriteHandler implements ReadWriteHandler {
         keepAlive = httpRequest.keepAlive();
         httpRequest = null;
         state = State.RESPONSE_READY;
-
-        DEBUG("AFTER RESPONSE BODY");
     }
     private void outputError(){
         putString(outBuffer,"HTTP/1.1 " + errCode + " " + errMsg + "\r\n");
