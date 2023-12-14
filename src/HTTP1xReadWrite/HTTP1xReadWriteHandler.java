@@ -15,7 +15,7 @@ import HTTPInfo.*;
 import Cache.Cache;
 
 public class HTTP1xReadWriteHandler implements ReadWriteHandler {
-    private static boolean debug = false;
+    private static boolean debug = true;
     private ByteBuffer inBuffer;
     private ByteBuffer outBuffer;
     private Cache cache;
@@ -23,6 +23,7 @@ public class HTTP1xReadWriteHandler implements ReadWriteHandler {
     String CGI_BIN;
     String urlName;
     String fileName;
+    String directory;
     File fileInfo;
 
     int errCode;
@@ -48,7 +49,6 @@ public class HTTP1xReadWriteHandler implements ReadWriteHandler {
     boolean keepAlive;
     boolean chunkedEncoding = true;
     int bodyLength = 0;
-    private static final String END_OF_HEADERS = "\r\n\r\n";
     private char[] lastFourChars = new char[4];
     private int lastFourIndex = 0;
 
@@ -60,11 +60,11 @@ public class HTTP1xReadWriteHandler implements ReadWriteHandler {
         state = State.READ_REQUEST;
         format = new SimpleDateFormat("EEE, dd MMM yyyy HH:mm:ss z");
         format.setTimeZone(TimeZone.getTimeZone("GMT"));
-        keepAlive = false;
+        keepAlive = true;
         cache = new Cache();
         this.config = config;
         // Set WWW Root as the first virtual host
-        this.WWW_ROOT = "." + config.getVirtualHosts().get(0).getDocumentRoot() + "/";
+        this.WWW_ROOT = config.getVirtualHosts().get(0).getDocumentRoot() + "/";
         this.payload = null;
         this.CGI_BIN = CGI_BIN;
     }
@@ -86,17 +86,13 @@ public class HTTP1xReadWriteHandler implements ReadWriteHandler {
         } catch (Exception e){
             //
         }
-
         // update state
         updateSelectorState(key);
-
         DEBUG("handleRead->");
 
     } // end of handleRead
     private void updateSelectorState(SelectionKey key) {
         DEBUG("Entered Update Dispatcher Selector State.");
-
-
         if (state == State.RESPONSE_SENT) {
             try {
                 key.channel().close();
@@ -127,24 +123,20 @@ public class HTTP1xReadWriteHandler implements ReadWriteHandler {
     }
     public void handleWrite(SelectionKey key) throws IOException {
         DEBUG("->handleWrite");
-
         // process data
         SocketChannel client = (SocketChannel) key.channel();
         DEBUG("handleWrite: Write data to connection " + client + "; from buffer " + outBuffer);
         int writeBytes = client.write(outBuffer);
         DEBUG("handleWrite: write " + writeBytes + " bytes; after write " + outBuffer);
-
         if ((state == State.RESPONSE_READY) && (outBuffer.remaining() == 0)) {
             if(keepAlive) {
                 state = State.READ_REQUEST;
                 httpRequest = null;
-                keepAlive = false;
             }
             else {
                 state = State.RESPONSE_SENT;
             }
         }
-        DEBUG("HERE IN HANDLE WRITE");
         outBuffer.clear();
         // update state
         updateSelectorState(key);
@@ -154,17 +146,15 @@ public class HTTP1xReadWriteHandler implements ReadWriteHandler {
 
     private void checkPostBody() {
         if (httpRequest.getHttpMethod().equals("POST")) {
-            // If option 1 is null or option 2 is null
-            // If option 1 is not null and option 2 is not null
-            if (httpRequest.getHeader("Content-Length") == null || httpRequest.getHeader("Content-Type") == null){
+            if (httpRequest.getHeader("Content-Type") == null){
                 errCode = 500;
                 outputError();
                 return;
             }
             if (httpRequest.getHeader("Content-Length") != null) {
                 bodyLength = Integer.parseInt(httpRequest.getHeader("Content-Length"));
-                state = State.READ_BODY;
             }
+            state = State.READ_BODY;
         }
         else {
             state = State.PARSE_REQUEST;
@@ -222,6 +212,7 @@ public class HTTP1xReadWriteHandler implements ReadWriteHandler {
 
 
     private void processHTTPRequest(SelectionKey key) throws Exception {
+        DEBUG("-> processHTTPRequest");
         if(httpRequest.getHttpMethod() == null || httpRequest.getHttpVersion() == null|| httpRequest.getUrlName() == null) {
             errCode = 500;
             errMsg = "Bad Request";
@@ -256,7 +247,9 @@ public class HTTP1xReadWriteHandler implements ReadWriteHandler {
         urlName = httpRequest.getUrlName();
 
         // First, we check if there is a htaccess content file in the directory of the requested url
-        htaccessContent = processHtaccess(WWW_ROOT);
+        String [] urlNameParts = urlName.split("/");
+        directory = String.join("/", Arrays.copyOf(urlNameParts, urlNameParts.length - 1));
+        htaccessContent = processHtaccess(WWW_ROOT + directory);
         if (htaccessContent != null) {
             if(!httpRequest.processAuthorizationHeader(htaccessContent)) {
                 errCode = 401;
@@ -300,6 +293,7 @@ public class HTTP1xReadWriteHandler implements ReadWriteHandler {
                 }
             }
             case ("POST"): {
+                DEBUG("HERE");
                 processPostRequest(key);
                 putString(outBuffer,"HTTP/1.1 200 OK\r\n");
                 outputPostResponse();
@@ -311,14 +305,15 @@ public class HTTP1xReadWriteHandler implements ReadWriteHandler {
         httpRequest.parseBody(new BufferedReader(new StringReader(requestBody.toString())));
         // select the cgi script to handle the request
         String[] partsOfUrl = urlName.split("\\?");
-        int endIndex = WWW_ROOT.indexOf("/web/") + "/web/".length();
-        // all executable files MUST reside in home.httpd.html.zoo.classes.cs434.web.cgi-bin
-        String fileName = WWW_ROOT.substring(0, endIndex) + CGI_BIN + "/" + partsOfUrl[0];
+        DEBUG(urlName);
+        fileName = WWW_ROOT + urlName;
         fileInfo = new File(fileName);
-        DEBUG(Arrays.toString(partsOfUrl));
-        DEBUG("filename: " + fileName); // uncommented this
+        DEBUG("filename: " + fileName);
         // get the arguments from the request body
+
+        DEBUG("parse body");
         String scriptArgs = httpRequest.getRequestBody();
+        DEBUG("after parse body");
         // create and set up the process environment
         ProcessBuilder pb = new ProcessBuilder(fileName);
         SocketChannel client = (SocketChannel) key.channel();
@@ -331,11 +326,13 @@ public class HTTP1xReadWriteHandler implements ReadWriteHandler {
         String currentServerPort = "6789";
         String serverProtocol = httpRequest.getHttpVersion();
         String serverSoftware = "Jackie and Cesar's HTTP/1.0 Server";
-
         // set environment variables
         Map<String, String> env = pb.environment();
 
-        env.put("QUERY_STRING", partsOfUrl[1]);
+        if (partsOfUrl.length > 1) {
+            env.put("QUERY_STRING", partsOfUrl[1]);
+        }
+        DEBUG("HERE on 345");
         env.put("REQUEST_METHOD", httpRequest.getHttpMethod());
         env.put("REMOTE_ADDR", clientNetworkAddress); // set to network address of the client sending the request to the server
         env.put("REMOTE_HOST", fullyQualifiedDomainName); // set to fully qualified domain name of client (or NULL)
@@ -348,7 +345,9 @@ public class HTTP1xReadWriteHandler implements ReadWriteHandler {
         // redirect the stdout of the script to a file descriptor
         pb.redirectOutput(ProcessBuilder.Redirect.PIPE);
 
+        DEBUG("HERE on 358");
         try {
+            DEBUG("HERE IN PROCESS");
             // run the executable with the args passed in
             Process p = pb.start();
             try (OutputStream stdin = p.getOutputStream()) {
@@ -394,7 +393,6 @@ public class HTTP1xReadWriteHandler implements ReadWriteHandler {
             fileName = WWW_ROOT + urlName;
         }
 
-
         fileInfo = new File(fileName);
 
         if (fileInfo.isFile()) {
@@ -422,9 +420,9 @@ public class HTTP1xReadWriteHandler implements ReadWriteHandler {
                 }
             }
             if (documentRoot == null) {
-                return false;
+                documentRoot = config.getVirtualHosts().get(0).getDocumentRoot();
             }
-            WWW_ROOT = "." + documentRoot + "/";
+            WWW_ROOT = documentRoot + "/";
         }
         return true;
     }
@@ -511,6 +509,7 @@ public class HTTP1xReadWriteHandler implements ReadWriteHandler {
         putString(outBuffer, "Content-Type: " + contentType() + "\r\n");
         putString(outBuffer, "Content-Length: " + fileInfo.length() + "\r\n");
         putString(outBuffer, "\r\n");
+
     }
     private void outputResponseBody() throws IOException {
         // Assuming fileInfo is a File object referring to the file to be sent
@@ -519,25 +518,25 @@ public class HTTP1xReadWriteHandler implements ReadWriteHandler {
             int numOfBytes = (int) fileInfo.length();
             // Ensure the buffer is large enough to hold the file content
             if (outBuffer.capacity() < numOfBytes) {
-                // Resize buffer if necessary
-                outBuffer = ByteBuffer.allocate(numOfBytes);
+                ByteBuffer tempBuffer = ByteBuffer.allocate(numOfBytes);
+                outBuffer.flip(); // Switch to reading mode to read existing data
+                tempBuffer.put(outBuffer); // Copy existing data to the new buffer
+                outBuffer = tempBuffer; // Replace outBuffer with the new buffer
             }
             // Read the file content directly into the buffer
             while (fileChannel.read(outBuffer) > 0) {
                 // Continue reading until EOF
             }
         }
-
-        if (httpRequest.keepAlive()) {
-            putString(outBuffer, "\r\n");
-        }
-
+        keepAlive = httpRequest.keepAlive();
         outBuffer.flip(); // Prepare the buffer for writing to the socket channel
 
         request.delete(0, request.length());
         keepAlive = httpRequest.keepAlive();
         httpRequest = null;
         state = State.RESPONSE_READY;
+
+        DEBUG("AFTER RESPONSE BODY");
     }
     private void outputError(){
         putString(outBuffer,"HTTP/1.1 " + errCode + " " + errMsg + "\r\n");
@@ -563,8 +562,9 @@ public class HTTP1xReadWriteHandler implements ReadWriteHandler {
     }
     private String contentType() {
         urlName = httpRequest.getUrlName();
-        if (urlName.endsWith(".jpg"))
+        if (urlName.endsWith(".jpg")) {
             return "image/jpeg";
+        }
         else if (urlName.endsWith(".gif"))
             return "image/gif";
         else if (urlName.endsWith(".html"))
