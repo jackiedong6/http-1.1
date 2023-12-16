@@ -117,36 +117,6 @@ public class HTTPRequest {
         DEBUG(String.valueOf(allHeaders));
     }
 
-//
-//    public void parseRequest() throws Exception {
-//        String requestMessageLine = requestReader.readLine();
-//        DEBUG("Request: " + requestMessageLine);
-//        String[] request = requestMessageLine.split("\\s");
-//
-//        if (request.length != 3) {
-//            return;
-//        }
-//        this.httpMethod = request[0];
-//        this.requestUrl = request[1];
-//        this.httpVersion = request[2];
-//
-//        if (requestUrl.startsWith("/")) {
-//            requestUrl = requestUrl.substring(1);
-//        }
-//
-//        String requestHeaderLine = requestReader.readLine();
-//
-//        while (!requestHeaderLine.equals("")) {
-//            if (requestHeaderLine.contains(": ")) {
-//                String[] headerParts = requestHeaderLine.split(": ", 2);
-//                setHeader(headerParts[0], headerParts[1]);
-//            }
-//            requestHeaderLine = requestReader.readLine();
-//        }
-//
-//        DEBUG(String.valueOf(allHeaders));
-//    }
-
     public void parseBody(BufferedReader bodyReader) throws Exception{
         StringBuilder requestBodyBuilder = new StringBuilder();
         String requestBodyLine;
@@ -205,7 +175,10 @@ public class HTTPRequest {
         String header = getHeader(ACCEPT);
         // If there is a specified host
         if (header != null) {
-            if (header.contains("image/jpeg") && requestUrl.endsWith(".jpg")) {
+            if (header.contains("*/*")) {
+                preferredContentType = "text/html";
+            }
+            else if (header.contains("image/jpeg") && requestUrl.endsWith(".jpg")) {
                 preferredContentType = "image/jpeg";
             } else if (header.contains("image/gif") && requestUrl.endsWith(".gif")) {
                 preferredContentType = "image/gif";
@@ -221,7 +194,10 @@ public class HTTPRequest {
 
     public boolean keepAlive() {
         String header = getHeader(CONNECTION);
-        return header != null && header.equalsIgnoreCase("keep-alive");
+        if (header == null) {
+            return true;
+        }
+        return !header.equalsIgnoreCase("close");
     }
 
     /*
