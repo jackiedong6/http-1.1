@@ -84,7 +84,7 @@ public class HTTP1xReadWriteHandler implements ReadWriteHandler {
     public void handleException() {}
     public void handleRead(SelectionKey key) throws IOException {
         // a connection is ready to be read
-        DEBUG("A connection is ready to be read. Entered handleRead");
+        // DEBUG("A connection is ready to be read. Entered handleRead");
 
         if (state != State.READ_REQUEST && state != State.READ_BODY) { // this call should not happen, ignore
             return;
@@ -98,11 +98,11 @@ public class HTTP1xReadWriteHandler implements ReadWriteHandler {
         }
         // update state
         updateSelectorState(key);
-        DEBUG("handleRead->");
+        // DEBUG("handleRead->");
 
     } // end of handleRead
     private void updateSelectorState(SelectionKey key) {
-        DEBUG("Entered Update Dispatcher Selector State.");
+        // DEBUG("Entered Update Dispatcher Selector State.");
         if (state == State.RESPONSE_SENT) {
             try {
                 key.channel().close();
@@ -176,7 +176,7 @@ public class HTTP1xReadWriteHandler implements ReadWriteHandler {
         }
     }
     private void processInBuffer(SelectionKey key) throws Exception {
-        DEBUG("processInBuffer");
+        // DEBUG("processInBuffer");
         SocketChannel client = (SocketChannel) key.channel();
         int readBytes = client.read(inBuffer);
         DEBUG("handleRead: Read data from connection " + client + " for " + readBytes + " byte(s); to buffer "
@@ -228,6 +228,9 @@ public class HTTP1xReadWriteHandler implements ReadWriteHandler {
 
     private void processHTTPRequest(SelectionKey key) throws Exception {
         DEBUG("-> processHTTPRequest");
+        if (debug) {
+            httpRequest.printHttpRequest();
+        }
         if(httpRequest.getHttpMethod() == null || httpRequest.getHttpVersion() == null|| httpRequest.getUrlName() == null) {
             errCode = 500;
             errMsg = "Bad Request";
@@ -273,7 +276,7 @@ public class HTTP1xReadWriteHandler implements ReadWriteHandler {
                 if (httpRequest.getHeader("Authorization") == null) {
                     wwwAuthenticate = true;
                 }
-                outputError();
+                outputError(); 
                 return;
             }
         }
@@ -454,11 +457,13 @@ public class HTTP1xReadWriteHandler implements ReadWriteHandler {
         try {
             BufferedReader reader = new BufferedReader(new FileReader(htaccessFile));
             String htaccessLine;
+            // DEBUG("Printing the map htaccessContent:"); 
             while ((htaccessLine = reader.readLine()) != null) {
                 String[] split = htaccessLine.split("\\s",2);
                 htaccessContent.put(split[0], split[1]);
-
+                // DEBUG(split[0] + ": " + split[1]); 
             }
+            // DEBUG("Done printing the map htaccessContent");
         } catch (IOException e) {
             // handle the exception here
         }
@@ -551,10 +556,15 @@ public class HTTP1xReadWriteHandler implements ReadWriteHandler {
         httpRequest = null;
         state = State.RESPONSE_READY;
     }
+
     private void outputError(){
         putString(outBuffer,"HTTP/1.1 " + errCode + " " + errMsg + "\r\n");
         if (wwwAuthenticate) {
-            putString(outBuffer, "WWW-Authenticate: " + htaccessContent.get("AuthType") + "=" + htaccessContent.get("AuthName") +"\r\n");
+            if (httpRequest.isUserAgentABrowser()) {
+                putString(outBuffer, "WWW-Authenticate: Basic realm=\"User Visible Realm\"\r\n"); 
+            } else {
+                putString(outBuffer, "WWW-Authenticate: " + htaccessContent.get("AuthType") + "=" + htaccessContent.get("AuthName") +"\r\n");
+            }
         }
         putString(outBuffer,"Date: " + format.format(new Date()) + "\r\n");
         putString(outBuffer,"Server: Jackie and Cesar's HTTP/1.0 Server\r\n");

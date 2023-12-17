@@ -238,6 +238,7 @@ public class HTTPRequest {
      */
     public boolean processAuthorizationHeader(Map<String, String> htaccessContent)  {
         String authorizationHeader = getHeader("Authorization");
+        DEBUG("Authorization Header: " + authorizationHeader);
         if (authorizationHeader != null && authorizationHeader.startsWith(htaccessContent.get("AuthType"))) {
             String [] split = authorizationHeader.split("\\s");
             if(split.length != 2) {
@@ -263,6 +264,41 @@ public class HTTPRequest {
                     && password.equals(new String(Base64.getDecoder().decode(htaccessContent.get("Password"))));
         }
         return false;
+    }
+
+    /*
+     * Determine if the User-Agent that sent this request is from a browser (Safari, Chrome)
+     */
+    public Boolean isUserAgentABrowser() {
+        String userAgent = getHeader(USER_AGENT);
+        if (userAgent == null) {
+            return false;
+        }
+        String safari = "Safari";
+        String chrome = "Chrome";
+        int sPosition = userAgent.indexOf(safari);
+        int cPosition = userAgent.indexOf(chrome);
+        if (sPosition == -1 && cPosition == -1) {
+            return false;
+        }
+        return true; 
+    }
+
+    /*
+     * Print an entire http request, including all headers and the body
+     */
+    public void printHttpRequest() {
+        DEBUG("PRINTING HTTP REQUEST:");
+        // print the first line 
+        System.out.println(httpMethod + " " + requestUrl + " " + httpVersion);
+        // print the headers 
+        for (Map.Entry<String, String> element: allHeaders.entrySet()) {
+            System.out.println(element.getKey() + ": " + element.getValue()); 
+        }
+        System.out.println("");
+        // print the body
+        System.out.println(requestBody); 
+        DEBUG("DONE PRINTING HTTP REQUEST");
     }
 
 }

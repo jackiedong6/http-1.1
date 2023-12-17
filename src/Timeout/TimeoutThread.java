@@ -12,7 +12,7 @@ public class TimeoutThread extends Thread {
     public Random randNumGenerator; 
     public ConcurrentHashMap<Integer, SelectionKey> selectionKeys;
     public ConcurrentHashMap<Integer, Long> timestamps; 
-    private static boolean debug = true; 
+    private static boolean debug = false; 
 
     public TimeoutThread() {
         selectionKeys = new ConcurrentHashMap<>();
