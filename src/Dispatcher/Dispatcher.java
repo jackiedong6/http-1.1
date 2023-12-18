@@ -2,6 +2,8 @@ package Dispatcher;
 
 import AcceptHandler.AcceptHandler;
 import ReadWriteHandler.ReadWriteHandler;
+import Timeout.TimeoutThread;
+
 import java.nio.channels.*;
 import java.io.IOException;
 import java.util.*; // for Set and Iterator
@@ -9,11 +11,13 @@ import java.util.*; // for Set and Iterator
 public class Dispatcher extends Thread {
 
     private Selector selector;
-    private static boolean debug = false; 
+    private static boolean debug = false;
+    private TimeoutThread timeoutThread;  
 
-    public Dispatcher() {
+    public Dispatcher(TimeoutThread timeoutThread) {
         // create selector
         try {
+            this.timeoutThread = timeoutThread; 
             selector = Selector.open();
         } catch (IOException ex) {
             System.out.println("Cannot create selector.");
@@ -75,6 +79,8 @@ public class Dispatcher extends Thread {
                     // if the key is readable or writeable create a read write handler
                     if (key.isReadable() || key.isWritable()) {
                         ReadWriteHandler rwH = (ReadWriteHandler) key.attachment();
+                        // let the timeout thread know that the channel on this key has gotten a request
+                        timeoutThread.removeSelectionKey(rwH.getSelectionHashKey());
                         if (key.isReadable()) {
                             rwH.handleRead(key);
                         } // end of if isReadable

@@ -10,4 +10,8 @@ public interface ReadWriteHandler extends ChannelHandler {
     public void handleWrite(SelectionKey key) throws IOException;
 
     public int getInitOps();
+
+    public void setSelectionHashKey(int hashkey);
+
+    public int getSelectionHashKey(); 
 }
