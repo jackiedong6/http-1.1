@@ -140,6 +140,10 @@ HTTPInfo (HTTPMessage.java, HTTPRequest.java, HTTPResponse.java): Defines classe
 
 HTTP1xReadWriteHandler and HTTP1xReadWriteHandlerFactory: These components handle HTTP 1.x read and write operations. The factory class creates instances of the handler.
 
+Management (ManagementThread.java): Includes the code for the management thread, which allows the user to enter "shutdown" in the terminal to gracefully shutdown the server.
+
+Timeout (TimeoutThread.java): Keeps track of all the connections for each multiplexing loop and closes a connection when the timeout has been reached for that connection.
+
 Our server spawns n multiplexing loops determined by our configuration file. Our select loop design is symmetric, with each dispatcher thread handling accepting requests, reading requests, and writing requests. Each thread utilizes java's non-blocking NIO channels to multiplex ready i/o tasks. 
 
 Our server also utilizes a management thread that listens for operator entered management commands. The terminal supports the minimal command: shutdown, which disables the server from accepting any new requests, but will continue to process the existing requests until all requests are finished.
