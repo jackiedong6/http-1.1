@@ -274,16 +274,10 @@ public class HTTPRequest {
         if (userAgent == null) {
             return false;
         }
-        String safari = "Safari";
-        String chrome = "Chrome";
-        String firefox = "Firefox";
-        int sPosition = userAgent.indexOf(safari);
-        int cPosition = userAgent.indexOf(chrome);
-        int fPosition = userAgent.indexOf(firefox);
-        if (sPosition == -1 && cPosition == -1 && fPosition == -1) {
-            return false;
-        }
-        return true; 
+        if (userAgent.indexOf("Safari") != -1) { return true; }
+        if (userAgent.indexOf("Chrome") != -1) { return true; }
+        if (userAgent.indexOf("Firefox") != -1) { return true; }
+        return false; 
     }
 
     /*
