@@ -5,17 +5,9 @@ Welcome to Jackie Dong and Cesar Segura's implementation of an Http Server (HTTP
 Notes on running the code:
 
 - To run the code in this repository, it is suggested that you recompile the source files on your own machine.
-- After compiling all of the source files, the command to run the server is "
+- After compiling all of the source files, the command to run the server is 
     - java server -config httpd.conf
-- We have provided a default config file called httpd.conf in our repository# http-1.1
-
-Welcome to Jackie Dong and Cesar Segura's implementation of an Http Server (HTTP/1.1)!
-
-Notes on running the code:
-
-- To run the code in this repository, it is suggested that you recompile the source files on your own machine.
-- After compiling all of the source files, the command to run the server is "
-  - java server -config httpd.conf
+- Note: this command must be run within the src directory
 - We have provided a default config file called httpd.conf in our repository
 - Here are a couple of example commands that can be run from a separate terminal once the server is up and runnning:
   - curl -i -X POST -H "Host: cicada.cs.yale.edu" -H "Content-Type: application/x-www-form-urlencoded" -H "Content-Length: 15" -d "item1=A&item2=B" "http://localhost:6789/price.cgi?company=appl"
