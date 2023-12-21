@@ -150,6 +150,8 @@ Our server also utilizes a management thread that listens for operator entered m
 
 In addition, our server supports timeout functionality. If a new connection does not give a complete request to the server approximately within our timeout value of three seconds, from the time of being accepted, the server should disconnect the connection. 
 
+Our server handles CGI script errors/crashes by sending a response back to the client with error code 500 (Internal Server Error: could not create dynamic content)
+
 **Execution**
 
 We don't utilize as many states as NGINX does in its request parsing. However, our read write handler does  utilize a state machine with the following states.
