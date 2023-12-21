@@ -5,6 +5,7 @@ Welcome to Jackie Dong and Cesar Segura's implementation of an Http Server (HTTP
 Notes on running the code:
 
 - To run the code in this repository, it is suggested that you recompile the source files on your own machine.
+- Also, it is suggested to change the DocumentRoot for each of the virutal hosts in the httpd.conf file so that the path points to the directory where you store the files.
 - After compiling all of the source files, the command to run the server is 
     - java server -config httpd.conf
 - Note: this command must be run within the src directory
